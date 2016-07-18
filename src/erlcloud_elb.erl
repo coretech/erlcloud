@@ -123,13 +123,13 @@ configure_health_check(LB, Target, Config) when is_list(LB) ->
                         {"HealthCheck.Target", Target}]).
 
 
--spec describe_load_balancer(string()) -> proplist().
+-spec describe_load_balancer(string()) -> term().
 describe_load_balancer(Name) ->
     describe_load_balancer(Name, default_config()).
 describe_load_balancer(Name, Config) ->
     describe_load_balancers([Name], Config).
 
--spec describe_load_balancers([string()]) -> proplist().
+-spec describe_load_balancers([string()]) -> term().
 describe_load_balancers(Names) ->
     describe_load_balancers(Names, default_config()).
 describe_load_balancers(Names, Config) ->
