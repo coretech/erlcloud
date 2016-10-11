@@ -20,6 +20,7 @@
          put_metric_data/5,
          get_metric_statistics/4,
          get_metric_statistics/8,
+         get_alarm_state/1,
          configure_host/3,
          test/0,
          test2/0
@@ -217,6 +218,14 @@ put_metric_data(Namespace, MetricName, Value, Unit, Timestamp) ->
          ),
     mon_simple_query(Config, "PutMetricData", Params).
 
+get_alarm_state(AlarmName) ->
+    Config = default_config(),
+    Params = [{"AlarmNames.member.1", AlarmName}],
+    Doc = mon_query(Config, "DescribeAlarms", Params),
+    [Member] = xmerl_xpath:string(
+        "/DescribeAlarmsResponse/DescribeAlarmsResult/MetricAlarms/member",
+        Doc),
+    get_text("StateValue", Member).
 
 %%------------------------------------------------------------------------------
 %% @doc CloudWatch API - GetMetricStatistics - Easy average version
