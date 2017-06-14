@@ -8,7 +8,7 @@ _build
 ebin/*.beam
 ebin/*.app
 .eunit/
-.rebar/
+.rebar*/
 rebar
 *.sublime-*
 deps/
