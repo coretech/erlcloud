@@ -7,6 +7,7 @@
 
 -export([create_stream/2, create_stream/3,
          delete_stream/1, delete_stream/2,
+         list_shards/1, list_shards/2, list_shards/3,
          list_streams/0, list_streams/1, list_streams/2, list_streams/3,
          describe_stream/1, describe_stream/2, describe_stream/3, describe_stream/4,
          describe_stream_summary/1, describe_stream_summary/2,
@@ -15,7 +16,7 @@
          get_shard_iterator/3, get_shard_iterator/4, get_shard_iterator/5,
          get_records/1, get_records/2, get_records/3, get_records/4,
          put_record/3, put_record/4, put_record/5, put_record/6, put_record/7,
-         put_records/2, put_records/3,
+         put_records/2, put_records/3, put_records/4,
          merge_shards/3, merge_shards/4,
          split_shards/3, split_shards/4,
          add_tags_to_stream/2, add_tags_to_stream/3,
@@ -29,6 +30,11 @@
 -include("erlcloud_aws.hrl").
 
 -type get_records_limit() :: 1..10000.
+
+-type exclusive_start_shard_id_opt() :: {exclusive_start_shard_id, string()}.
+-type max_results_opt() :: {max_results, non_neg_integer()}.
+-type next_token_opt() :: {next_token, string()}.
+-type stream_creation_timestamp_opt() :: {stream_creation_timestamp, integer()}.
 
 -spec new(string(), string()) -> aws_config().
 
@@ -71,6 +77,32 @@ configure(AccessKeyID, SecretAccessKey, Host, Port) ->
     erlcloud_config:configure(AccessKeyID, SecretAccessKey, Host, Port, fun new/4).
 
 default_config() -> erlcloud_aws:default_config().
+
+dynamize_option({stream_name, Value}) ->
+    {<<"StreamName">>, Value};
+dynamize_option({exclusive_start_shard_id, Value}) ->
+    {<<"ExclusiveStartShardId">>, Value};
+dynamize_option({max_results, Value}) when Value >= 1, Value =< 10000 ->
+    {<<"MaxResults">>, Value};
+dynamize_option({next_token, Value}) ->
+    {<<"NextToken">>, Value};
+dynamize_option({stream_creation_timestamp, Value}) ->
+    {<<"StreamCreationTimestamp">>, Value};
+dynamize_option(Option) ->
+    {error, {invalid_option, Option}}.
+
+dynamize_options(Options) ->
+    lists:foldr(fun
+        (Option, Acc) when is_list(Acc) ->
+            case dynamize_option(Option) of
+                {error, _} = Error ->
+                    Error;
+                DynamizedOption ->
+                    [DynamizedOption | Acc]
+            end;
+        (_Option, Error) ->
+            Error
+    end, [], Options).
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -129,6 +161,87 @@ delete_stream(StreamName) ->
 delete_stream(StreamName, Config) when is_record(Config, aws_config) ->
    Json = [{<<"StreamName">>, StreamName}],
    erlcloud_kinesis_impl:request(Config, "Kinesis_20131202.DeleteStream", Json).
+
+
+-type list_shards_opts() :: [
+    exclusive_start_shard_id_opt() |
+    max_results_opt() |
+    next_token_opt() |
+    stream_creation_timestamp_opt()
+].
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% Kinesis API:
+%% [https://docs.aws.amazon.com/kinesis/latest/APIReference/API_ListShards.html]
+%%
+%% ===Example===
+%%
+%% This operation returns the following information about the stream: an array of shard objects that comprise the stream.
+%%
+%% `
+%% erlcloud_kinesis:list_shards(<<"staging">>).
+%% {ok, [
+%%     {<<"NextToken">>, <<"AAAAAAAAAAGK9EEG0sJqVhCUS2JsgigQ5dcpB4q9PYswrH2oK44Skbjtm+WR0xA7/hrAFFsohevH1/OyPnbzKBS1byPyCZuVcokYtQe/b1m4c0SCI7jctPT0oUTLRdwSRirKm9dp9YC/EL+kZHOvYAUnztVGsOAPEFC3ECf/bVC927bDZBbRRzy/44OHfWmrCLcbcWqehRh5D14WnL3yLsumhiHDkyuxSlkBepauvMnNLtTOlRtmQ5Q5reoujfq2gzeCSOtLcfXgBMztJqohPdgMzjTQSbwB9Am8rMpHLsDbSdMNXmITvw==">>},
+%%     {<<"Shards">>, [
+%%         [
+%%             {<<"ShardId">>, <<"shardId-000000000001">>},
+%%             {<<"HashKeyRange">>, [
+%%                 {<<"EndingHashKey">>, <<"68056473384187692692674921486353642280">>},
+%%                 {<<"StartingHashKey">>, <<"34028236692093846346337460743176821145">>}
+%%             ]},
+%%             {<<"SequenceNumberRange">>, [
+%%                 {<<"StartingSequenceNumber">>, <<"49579844037727333356165064238440708846556371693205002258">>}
+%%             ]}
+%%         ], [
+%%             {<<"ShardId">>, <<"shardId-000000000002">>},
+%%             {<<"HashKeyRange">>, [
+%%                 {<<"EndingHashKey">>, <<"102084710076281539039012382229530463436">>},
+%%                 {<<"StartingHashKey">>, <<"68056473384187692692674921486353642281">>}
+%%             ]},
+%%             {<<"SequenceNumberRange">>, [
+%%                 {<<"StartingSequenceNumber">>, <<"49579844037749634101363594861582244564829020124710982690">>}
+%%             ]}
+%%         ], [
+%%             {<<"ShardId">>, <<"shardId-000000000003">>},
+%%             {<<"HashKeyRange">>, [
+%%                 {<<"EndingHashKey">>, <<"136112946768375385385349842972707284581">>},
+%%                 {<<"StartingHashKey">>, <<"102084710022876281539039012382229530463437">>}
+%%             ]},
+%%             {<<"SequenceNumberRange">>, [
+%%                 {<<"StartingSequenceNumber">>, <<"49579844037771934846562125484723780283101668556216963122">>}
+%%             ]}
+%%         ]
+%%    ]}
+%% ]}
+%% '
+%%
+%% @end
+%%------------------------------------------------------------------------------
+
+-spec list_shards(binary() | list_shards_opts()) -> erlcloud_kinesis_impl:json_return() | {error, any()}.
+list_shards(StreamNameOrOptions) ->
+   list_shards(StreamNameOrOptions, default_config()).
+
+-spec list_shards(binary() | list_shards_opts(), list_shards_opts() | aws_config()) -> erlcloud_kinesis_impl:json_return().
+list_shards(StreamName, Config) when is_record(Config, aws_config), is_binary(StreamName) ->
+    list_shards(StreamName, [], Config);
+list_shards(Options, Config) when is_record(Config, aws_config), is_list(Options) ->
+    case dynamize_options(Options) of
+        DynamizedOptions when is_list(DynamizedOptions) ->
+            erlcloud_kinesis_impl:request(Config, "Kinesis_20131202.ListShards", DynamizedOptions);
+        Error ->
+            Error
+    end;
+list_shards(StreamName, Options) ->
+    list_shards(StreamName, Options, default_config()).
+
+-spec list_shards(binary(), list_shards_opts(), aws_config()) -> erlcloud_kinesis_impl:json_return().
+list_shards(StreamName, Options, Config) ->
+    % Syntaxtic sugar as all other erlcloud_kinesis operating on a stream takes
+    % a stream name as 1st argument.
+    list_shards([{stream_name, StreamName} | Options], Config).
+
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -234,15 +347,15 @@ describe_stream(StreamName, Limit, Config)
        Limit >= 1, Limit =< 10000 ->
     Json = [{<<"StreamName">>, StreamName}, {<<"Limit">>, Limit}],
     erlcloud_kinesis_impl:request(Config, "Kinesis_20131202.DescribeStream", Json);
-describe_stream(StreamName, Limit, ExcludeShard) ->
-    describe_stream(StreamName, Limit, ExcludeShard, default_config()).
+describe_stream(StreamName, Limit, ExclusiveStartShardId) ->
+    describe_stream(StreamName, Limit, ExclusiveStartShardId, default_config()).
 
 -spec describe_stream(binary(), get_records_limit(), string(), aws_config()) -> erlcloud_kinesis_impl:json_return().
-describe_stream(StreamName, Limit, ExcludeShard, Config)
+describe_stream(StreamName, Limit, ExclusiveStartShardId, Config)
   when is_record(Config, aws_config),
        is_integer(Limit),
        Limit >= 1, Limit =< 10000 ->
-    Json = [{<<"StreamName">>, StreamName}, {<<"Limit">>, Limit}, {<<"ExclusiveStartShardId">>, ExcludeShard}],
+    Json = [{<<"StreamName">>, StreamName}, {<<"Limit">>, Limit}, {<<"ExclusiveStartShardId">>, ExclusiveStartShardId}],
     erlcloud_kinesis_impl:request(Config, "Kinesis_20131202.DescribeStream", Json).
 
 
@@ -442,12 +555,12 @@ get_shard_iterator_request(Config, Json) ->
 %% @end
 %%------------------------------------------------------------------------------
 
--spec get_records(string()) -> erlcloud_kinesis_impl:json_return().
+-spec get_records(binary()) -> erlcloud_kinesis_impl:json_return().
 get_records(ShardIterator) ->
     Json = [{<<"ShardIterator">>, ShardIterator}],
     get_normalized_records(default_config(), Json).
 
--spec get_records(string(), get_records_limit()| aws_config()) -> erlcloud_kinesis_impl:json_return().
+-spec get_records(binary(), get_records_limit()| aws_config()) -> erlcloud_kinesis_impl:json_return().
 get_records(ShardIterator, Config) when is_record(Config, aws_config) ->
     Json = [{<<"ShardIterator">>, ShardIterator}],
     get_normalized_records(Config, Json);
@@ -599,8 +712,8 @@ put_record(StreamName, PartitionKey, Data, ExplicitHashKey, Ordering, Options, C
 %% @end
 %%------------------------------------------------------------------------------
 
--type put_records_item() :: {Data :: string(), PartitionKey :: string()}
-                          | {Data :: string(), ExplicitHashKey :: string(), PartitionKey :: string()}.
+-type put_records_item() :: {Data :: binary(), PartitionKey :: binary()}
+                          | {Data :: binary(), ExplicitHashKey :: binary(), PartitionKey :: binary()}.
 -type put_records_items() :: [put_records_item()].
 
 -spec put_records(binary(), put_records_items()) -> erlcloud_kinesis_impl:json_return().
@@ -608,28 +721,38 @@ put_record(StreamName, PartitionKey, Data, ExplicitHashKey, Ordering, Options, C
 put_records(StreamName, Items) ->
     put_records(StreamName, Items, default_config()).
 
--spec put_records(binary(), put_records_items(), Config) -> erlcloud_kinesis_impl:json_return() when
-      Config :: aws_config().
+-spec put_records(binary(), put_records_items(), function() | aws_config()) -> erlcloud_kinesis_impl:json_return().
+
+put_records(StreamName, Items, EncodingFun) when is_function(EncodingFun, 1) ->
+    put_records(StreamName, Items, EncodingFun, default_config());
 
 put_records(StreamName, Items, Config) ->
+    put_records(StreamName, Items, fun default_put_encoding/1, Config).
+
+-spec put_records(binary(), put_records_items(),
+                  function(), Config :: aws_config()) -> erlcloud_kinesis_impl:json_return().
+
+put_records(StreamName, Items, EncodingFun, Config) when is_function(EncodingFun, 1) ->
     Operation = put_records_operation(),
-    Json = prepare_put_records_data(StreamName, Items),
+    Json = prepare_put_records_data(StreamName, Items, EncodingFun),
     erlcloud_kinesis_impl:request(Config, Operation, Json).
+
+default_put_encoding(D) -> base64:encode(D).
 
 put_records_operation() ->
     "Kinesis_20131202.PutRecords".
 
-prepare_put_records_data(StreamName, Items) ->
-    Records = [prepare_put_records_item(X) || X <- Items],
+prepare_put_records_data(StreamName, Items, Fun) ->
+    Records = [prepare_put_records_item(X, Fun) || X <- Items],
     [{<<"StreamName">>, StreamName}, {<<"Records">>, Records}].
 
-prepare_put_records_item({Data, PartitionKey}) ->
+prepare_put_records_item({Data, PartitionKey}, Fun) ->
     [{<<"PartitionKey">>, PartitionKey},
-     {<<"Data">>, base64:encode(Data)}];
-prepare_put_records_item({Data, ExplicitHashKey, PartitionKey}) ->
+     {<<"Data">>, Fun(Data)}];
+prepare_put_records_item({Data, ExplicitHashKey, PartitionKey}, Fun) ->
     [{<<"PartitionKey">>, PartitionKey},
      {<<"ExplicitHashKey">>, ExplicitHashKey},
-     {<<"Data">>, base64:encode(Data)}].
+     {<<"Data">>, Fun(Data)}].
 
 %%------------------------------------------------------------------------------
 %% @doc
@@ -648,13 +771,13 @@ prepare_put_records_item({Data, ExplicitHashKey, PartitionKey}) ->
 %% @end
 %%------------------------------------------------------------------------------
 
--spec merge_shards(binary(), string(), string()) -> erlcloud_kinesis_impl:json_return().
+-spec merge_shards(binary(), binary(), binary()) -> erlcloud_kinesis_impl:json_return().
 
 merge_shards(StreamName, AdjacentShardToMerge, ShardToMerge) ->
   Json = [{<<"StreamName">>, StreamName}, {<<"AdjacentShardToMerge">>, AdjacentShardToMerge}, {<<"ShardToMerge">>, ShardToMerge}],
   erlcloud_kinesis_impl:request(default_config(), "Kinesis_20131202.MergeShards", Json).
 
--spec merge_shards(binary(), string(), string(), aws_config()) -> erlcloud_kinesis_impl:json_return().
+-spec merge_shards(binary(), binary(), binary(), aws_config()) -> erlcloud_kinesis_impl:json_return().
 
 merge_shards(StreamName, AdjacentShardToMerge, ShardToMerge, Config) when is_record(Config, aws_config) ->
   Json = [{<<"StreamName">>, StreamName}, {<<"AdjacentShardToMerge">>, AdjacentShardToMerge}, {<<"ShardToMerge">>, ShardToMerge}],
@@ -677,13 +800,13 @@ merge_shards(StreamName, AdjacentShardToMerge, ShardToMerge, Config) when is_rec
 %% @end
 %%------------------------------------------------------------------------------
 
--spec split_shards(binary(), string(), string()) -> erlcloud_kinesis_impl:json_return().
+-spec split_shards(binary(), binary(), binary()) -> erlcloud_kinesis_impl:json_return().
 
 split_shards(StreamName, ShardToSplit, NewStartingHashKey) ->
   Json = [{<<"StreamName">>, StreamName}, {<<"ShardToSplit">>, ShardToSplit}, {<<"NewStartingHashKey">>, NewStartingHashKey}],
   erlcloud_kinesis_impl:request(default_config(), "Kinesis_20131202.SplitShard", Json).
 
--spec split_shards(binary(), string(), string(), aws_config()) -> erlcloud_kinesis_impl:json_return().
+-spec split_shards(binary(), binary(), binary(), aws_config()) -> erlcloud_kinesis_impl:json_return().
 
 split_shards(StreamName, ShardToSplit, NewStartingHashKey, Config) when is_record(Config, aws_config) ->
   Json = [{<<"StreamName">>, StreamName}, {<<"ShardToSplit">>, ShardToSplit}, {<<"NewStartingHashKey">>, NewStartingHashKey}],
@@ -846,7 +969,7 @@ list_all_tags_pagination_test_() ->
     meck:sequence(EK, request, 3,
                   [{ok, [{<<"HasMoreTags">>, true},  {<<"Tags">>, Tags1}]},
                    {ok, [{<<"HasMoreTags">>, false}, {<<"Tags">>, Tags2}]}]),
-    Result = erlcloud_kinesis:list_all_tags_for_stream(<<"stream">>),
+    Result = list_all_tags_for_stream(<<"stream">>),
     meck:unload(EK),
     ?_assertEqual({ok, [{<<"k1">>, <<"v1">>},
                         {<<"k2">>, <<"v2">>},

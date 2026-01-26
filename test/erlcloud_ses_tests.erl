@@ -22,8 +22,10 @@ operation_test_() ->
       fun get_send_statistics_tests/1,
       fun list_identities_tests/1,
       fun send_email_tests/1,
+      fun send_raw_email_tests/1,
       fun set_identity_dkim_enabled_tests/1,
       fun set_identity_feedback_forwarding_enabled_tests/1,
+      fun set_identity_headers_in_notifications_enabled_tests/1,
       fun set_identity_notification_topic_tests/1,
       fun verify_domain_dkim_tests/1,
       fun verify_domain_identity_tests/1,
@@ -134,6 +136,9 @@ get_identity_notification_attributes_tests(_) ->
         <key>user@example.com</key>
         <value>
           <ForwardingEnabled>true</ForwardingEnabled>
+          <HeadersInBounceNotificationsEnabled>true</HeadersInBounceNotificationsEnabled>
+          <HeadersInComplaintNotificationsEnabled>true</HeadersInComplaintNotificationsEnabled>
+          <HeadersInDeliveryNotificationsEnabled>true</HeadersInDeliveryNotificationsEnabled>
           <BounceTopic>arn:aws:sns:us-east-1:123456789012:example</BounceTopic>
           <ComplaintTopic>arn:aws:sns:us-east-1:123456789012:example</ComplaintTopic>
           <DeliveryTopic>arn:aws:sns:us-east-1:123456789012:example</DeliveryTopic>
@@ -148,6 +153,9 @@ get_identity_notification_attributes_tests(_) ->
         meck:expect(erlcloud_httpc, request, input_expect(Response, Expected)),
         ?assertEqual({ok, [{notification_attributes, [{"user@example.com",
                                                        [{forwarding_enabled, true},
+                                                        {headers_in_bounce_notifications_enabled, true},
+                                                        {headers_in_complaint_notifications_enabled, true},
+                                                        {headers_in_delivery_notifications_enabled, true},
                                                         {bounce_topic, "arn:aws:sns:us-east-1:123456789012:example"},
                                                         {complaint_topic, "arn:aws:sns:us-east-1:123456789012:example"},
                                                         {delivery_topic, "arn:aws:sns:us-east-1:123456789012:example"}]}]}]},
@@ -322,7 +330,7 @@ send_email_tests(_) ->
      end,
      fun() ->
          configure(),
-         Expected = "Action=SendEmail&Version=2010-12-01&Destination.BccAddresses.member.1=a%40bcc.com&Destination.BccAddresses.member.2=b%40bcc.com&Destination.CcAddresses.member.1=c%40cc.com&Destination.ToAddresses.member.1=d%40to.com&Message.Body.Html.Charset=html%20charset&Message.Body.Html.Data=html%20data&Message.Body.Text.Charset=text%20charset&Message.Body.Text.Data=text%20data&Message.Subject.Charset=subject%20charset&Message.Subject.Data=subject%20data&Source=e%40from.com&ReplyToAddresses.member.1=f%40reply.com&ReplyToAddresses.member.2=g%40reply.com&ReturnPath=return%20path",
+         Expected = "Action=SendEmail&Version=2010-12-01&Destination.BccAddresses.member.1=a%40bcc.com&Destination.BccAddresses.member.2=b%40bcc.com&Destination.CcAddresses.member.1=c%40cc.com&Destination.ToAddresses.member.1=d%40to.com&Message.Body.Html.Charset=html%20charset&Message.Body.Html.Data=html%20data&Message.Body.Text.Charset=text%20charset&Message.Body.Text.Data=text%20data&Message.Subject.Charset=subject%20charset&Message.Subject.Data=subject%20data&Source=e%40from.com&ConfigurationSetName=configuration%20set&ReplyToAddresses.member.1=f%40reply.com&ReplyToAddresses.member.2=g%40reply.com&ReturnPath=return%20path&Tags.member.1.Value=value-1&Tags.member.1.Name=tag-1&Tags.member.2.Value=value-2&Tags.member.2.Name=tag-2",
          Response =
 "<SendEmailResponse xmlns=\"http://ses.amazonaws.com/doc/2010-12-01/\">
 <SendEmailResult>
@@ -344,8 +352,48 @@ send_email_tests(_) ->
                                               [{charset, "subject charset"},
                                                {data, "subject data"}],
                                               "e@from.com",
-                                              [{reply_to_addresses, [<<"f@reply.com">>, "g@reply.com"]},
-                                               {return_path, "return path"}]))
+                                              [{configuration_set_name, "configuration set"},
+                                               {reply_to_addresses, [<<"f@reply.com">>, "g@reply.com"]},
+                                               {return_path, "return path"},
+                                               {tags, [{"tag-1", "value-1"}, {"tag-2", "value-2"}]}]))
+     end
+    ].
+
+send_raw_email_tests(_) ->
+    [
+     fun() ->
+         configure(),
+         Expected = "Action=SendRawEmail&Version=2010-12-01&RawMessage.Data=RnJvbTogYkBmcm9tLmNvbQpUbzogYUB0by5jb20KU3ViamVjdDogU3ViamVjdApNSU1FLVZlcnNpb246IDEuMApDb250ZW50LXR5cGU6IE11bHRpcGFydC9NaXhlZDsgYm91bmRhcnk9Ik5leHRQYXJ0IgoKLS1OZXh0UGFydApDb250ZW50LVR5cGU6IHRleHQvcGxhaW4KCkVtYWlsIEJvZHkKCi0tTmV4dFBhcnQtLQ%3D%3D",
+         Response =
+"<SendRawEmailResponse xmlns=\"http://ses.amazonaws.com/doc/2010-12-01/\">
+  <SendRawEmailResult>
+    <MessageId>00000131d51d2292-159ad6eb-077c-46e6-ad09-ae7c05925ed4-000000</MessageId>
+  </SendRawEmailResult>
+  <ResponseMetadata>
+    <RequestId>d5964849-c866-11e0-9beb-01a62d68c57f</RequestId>
+  </ResponseMetadata>
+</SendRawEmailResponse>",
+         meck:expect(erlcloud_httpc, request, input_expect(Response, Expected)),
+         ?assertEqual({ok, [{message_id, "00000131d51d2292-159ad6eb-077c-46e6-ad09-ae7c05925ed4-000000"}]},
+                      erlcloud_ses:send_raw_email("From: b@from.com\nTo: a@to.com\nSubject: Subject\nMIME-Version: 1.0\nContent-type: Multipart/Mixed; boundary=\"NextPart\"\n\n--NextPart\nContent-Type: text/plain\n\nEmail Body\n\n--NextPart--", []))
+     end,
+     fun() ->
+         configure(),
+         Expected = "Action=SendRawEmail&Version=2010-12-01&RawMessage.Data=VG86IGRAdG8uY29tCkNDOiBjQGNjLmNvbQpCQ0M6IGFAYmNjLmNvbSwgYkBiY2MuY29tClN1YmplY3Q6IFN1YmplY3QKTUlNRS1WZXJzaW9uOiAxLjAKQ29udGVudC10eXBlOiBNdWx0aXBhcnQvTWl4ZWQ7IGJvdW5kYXJ5PSJOZXh0UGFydCIKCi0tTmV4dFBhcnQKQ29udGVudC1UeXBlOiB0ZXh0L3BsYWluCgpFbWFpbCBCb2R5CgotLU5leHRQYXJ0LS0%3D&Source=e%40from.com&Destinations.member.1=d%40to.com&Destinations.member.2=c%40cc.com&Destinations.member.3=a%40bcc.com&Destinations.member.4=b%40bcc.com",
+         Response =
+"<SendRawEmailResponse xmlns=\"http://ses.amazonaws.com/doc/2010-12-01/\">
+  <SendRawEmailResult>
+    <MessageId>00000131d51d2292-159ad6eb-077c-46e6-ad09-ae7c05925ed4-000000</MessageId>
+  </SendRawEmailResult>
+  <ResponseMetadata>
+    <RequestId>d5964849-c866-11e0-9beb-01a62d68c57f</RequestId>
+  </ResponseMetadata>
+</SendRawEmailResponse>",
+         meck:expect(erlcloud_httpc, request, input_expect(Response, Expected)),
+         ?assertEqual({ok, [{message_id, "00000131d51d2292-159ad6eb-077c-46e6-ad09-ae7c05925ed4-000000"}]},
+                      erlcloud_ses:send_raw_email(<<"To: d@to.com\nCC: c@cc.com\nBCC: a@bcc.com, b@bcc.com\nSubject: Subject\nMIME-Version: 1.0\nContent-type: Multipart/Mixed; boundary=\"NextPart\"\n\n--NextPart\nContent-Type: text/plain\n\nEmail Body\n\n--NextPart--">>,
+                                              [{source, "e@from.com"},
+                                               {destinations, ["d@to.com", <<"c@cc.com">>, <<"a@bcc.com">>, "b@bcc.com"]}]))
      end
     ].
 
@@ -378,6 +426,22 @@ set_identity_feedback_forwarding_enabled_tests(_) ->
 </SetIdentityFeedbackForwardingEnabledResponse>",
         meck:expect(erlcloud_httpc, request, input_expect(Response, Expected)),
         ?assertEqual(ok, erlcloud_ses:set_identity_feedback_forwarding_enabled("user@example.com", true))
+     end
+    ].
+
+set_identity_headers_in_notifications_enabled_tests(_) ->
+    [fun() ->
+        configure(),
+        Expected = "Action=SetIdentityHeadersInNotificationsEnabled&Version=2010-12-01&Identity=user%40example.com&NotificationType=Bounce&Enabled=true",
+        Response =
+            "<SetIdentityHeadersInNotificationsEnabledResponse xmlns=\"http://ses.amazonaws.com/doc/2010-12-01/\">
+              <SetIdentityHeadersInNotificationsEnabledResult />
+              <ResponseMetadata>
+                <RequestId>299f4af4-b72a-11e1-901f-1fbd90e8104f</RequestId>
+              </ResponseMetadata>
+            </SetIdentityHeadersInNotificationsEnabledResponse>",
+        meck:expect(erlcloud_httpc, request, input_expect(Response, Expected)),
+        ?assertEqual(ok, erlcloud_ses:set_identity_headers_in_notifications_enabled("user@example.com", bounce, true))
      end
     ].
 

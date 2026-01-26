@@ -33,6 +33,8 @@ operation_test_() ->
       fun create_stream_output_tests/1,
       fun delete_stream_input_tests/1,
       fun delete_stream_output_tests/1,
+      fun list_shards_input_tests/1,
+      fun list_shards_output_tests/1,
       fun list_streams_input_tests/1,
       fun list_streams_output_tests/1,
       fun describe_stream_input_tests/1,
@@ -97,8 +99,8 @@ sort_json(V) ->
 %% verifies that the parameters in the body match the expected parameters
 -spec validate_body(binary(), expected_body()) -> ok.
 validate_body(Body, Expected) ->
-    Want = sort_json(jsx:decode(list_to_binary(Expected))),
-    Actual = sort_json(jsx:decode(Body)),
+    Want = sort_json(decode(list_to_binary(Expected))),
+    Actual = sort_json(decode(Body)),
     case Want =:= Actual of
         true -> ok;
         false ->
@@ -193,7 +195,7 @@ create_stream_output_tests(_) ->
     Tests =
         [?_kinesis_test(
             {"CreateStream example response", "{}",
-             {ok, jsx:decode(<<"{}">>)}})
+             {ok, decode(<<"{}">>)}})
         ],
 
     output_tests(?_f(erlcloud_kinesis:create_stream(<<"streamName">>, 2)), Tests).
@@ -218,10 +220,136 @@ delete_stream_output_tests(_) ->
     Tests =
         [?_kinesis_test(
             {"DeleteStream example response", "{}",
-             {ok, jsx:decode(<<"{}">>)}})
+             {ok, decode(<<"{}">>)}})
         ],
 
     output_tests(?_f(erlcloud_kinesis:delete_stream(<<"streamName">>)), Tests).
+
+%% ListStreams test based on the API examples:
+%% http://docs.aws.amazon.com/kinesis/latest/APIReference/API_ListShards.html
+list_shards_input_tests(_) ->
+    Tests =
+        [?_kinesis_test(
+            {"ListShards example request",
+             ?_f(erlcloud_kinesis:list_shards(<<"exampleStreamName">>, [{max_results, 3}])), "{
+                \"StreamName\" : \"exampleStreamName\",
+                \"MaxResults\" : 3
+             }"
+            })
+        ],
+
+    Response = "{
+        \"NextToken\": \"AAAAAAAAAAGK9EEG0sJqVhCUS2JsgigQ5dcpB4q9PYswrH2oK44Skbjtm+WR0xA7/hrAFFsohevH1/OyPnbzKBS1byPyCZuVcokYtQe/b1m4c0SCI7jctPT0oUTLRdwSRirKm9dp9YC/EL+kZHOvYAUnztVGsOAPEFC3ECf/bVC927bDZBbRRzy/44OHfWmrCLcbcWqehRh5D14WnL3yLsumhiHDkyuxSlkBepauvMnNLtTOlRtmQ5Q5reoujfq2gzeCSOtLcfXgBMztJqohPdgMzjTQSbwB9Am8rMpHLsDbSdMNXmITvw==\",
+        \"Shards\": [
+            {
+                \"ShardId\": \"shardId-000000000001\",
+                \"HashKeyRange\": {
+                    \"EndingHashKey\": \"68056473384187692692674921486353642280\",
+                    \"StartingHashKey\": \"34028236692093846346337460743176821145\"
+                },
+                \"SequenceNumberRange\": {
+                    \"StartingSequenceNumber\": \"49579844037727333356165064238440708846556371693205002258\"
+                }
+            },
+            {
+                \"ShardId\": \"shardId-000000000002\",
+                \"HashKeyRange\": {
+                    \"EndingHashKey\": \"102084710076281539039012382229530463436\",
+                    \"StartingHashKey\": \"68056473384187692692674921486353642281\"
+                },
+                \"SequenceNumberRange\": {
+                    \"StartingSequenceNumber\": \"49579844037749634101363594861582244564829020124710982690\"
+                }
+            },
+            {
+                \"ShardId\": \"shardId-000000000003\",
+                \"HashKeyRange\": {
+                    \"EndingHashKey\": \"136112946768375385385349842972707284581\",
+                    \"StartingHashKey\": \"102084710076281539039012382229530463437\"
+                },
+                \"SequenceNumberRange\": {
+                    \"StartingSequenceNumber\": \"49579844037771934846562125484723780283101668556216963122\"
+                }
+            }
+        ]
+    }",
+    input_tests(Response, Tests).
+
+list_shards_output_tests(_) ->
+    Tests =
+        [?_kinesis_test(
+            {"ListShards example response", "{
+                \"NextToken\": \"AAAAAAAAAAGK9EEG0sJqVhCUS2JsgigQ5dcpB4q9PYswrH2oK44Skbjtm+WR0xA7/hrAFFsohevH1/OyPnbzKBS1byPyCZuVcokYtQe/b1m4c0SCI7jctPT0oUTLRdwSRirKm9dp9YC/EL+kZHOvYAUnztVGsOAPEFC3ECf/bVC927bDZBbRRzy/44OHfWmrCLcbcWqehRh5D14WnL3yLsumhiHDkyuxSlkBepauvMnNLtTOlRtmQ5Q5reoujfq2gzeCSOtLcfXgBMztJqohPdgMzjTQSbwB9Am8rMpHLsDbSdMNXmITvw==\",
+                \"Shards\": [
+                    {
+                        \"ShardId\": \"shardId-000000000001\",
+                        \"HashKeyRange\": {
+                            \"EndingHashKey\": \"68056473384187692692674921486353642280\",
+                            \"StartingHashKey\": \"34028236692093846346337460743176821145\"
+                        },
+                        \"SequenceNumberRange\": {
+                            \"StartingSequenceNumber\": \"49579844037727333356165064238440708846556371693205002258\"
+                        }
+                    },
+                    {
+                        \"ShardId\": \"shardId-000000000002\",
+                        \"HashKeyRange\": {
+                            \"EndingHashKey\": \"102084710076281539039012382229530463436\",
+                            \"StartingHashKey\": \"68056473384187692692674921486353642281\"
+                        },
+                        \"SequenceNumberRange\": {
+                            \"StartingSequenceNumber\": \"49579844037749634101363594861582244564829020124710982690\"
+                        }
+                    },
+                    {
+                        \"ShardId\": \"shardId-000000000003\",
+                        \"HashKeyRange\": {
+                            \"EndingHashKey\": \"136112946768375385385349842972707284581\",
+                            \"StartingHashKey\": \"102084710076281539039012382229530463437\"
+                        },
+                        \"SequenceNumberRange\": {
+                            \"StartingSequenceNumber\": \"49579844037771934846562125484723780283101668556216963122\"
+                        }
+                    }
+                ]
+             }",
+             {ok, [
+                 {<<"NextToken">>, <<"AAAAAAAAAAGK9EEG0sJqVhCUS2JsgigQ5dcpB4q9PYswrH2oK44Skbjtm+WR0xA7/hrAFFsohevH1/OyPnbzKBS1byPyCZuVcokYtQe/b1m4c0SCI7jctPT0oUTLRdwSRirKm9dp9YC/EL+kZHOvYAUnztVGsOAPEFC3ECf/bVC927bDZBbRRzy/44OHfWmrCLcbcWqehRh5D14WnL3yLsumhiHDkyuxSlkBepauvMnNLtTOlRtmQ5Q5reoujfq2gzeCSOtLcfXgBMztJqohPdgMzjTQSbwB9Am8rMpHLsDbSdMNXmITvw==">>},
+                 {<<"Shards">>, [
+                     [
+                         {<<"ShardId">>, <<"shardId-000000000001">>},
+                         {<<"HashKeyRange">>, [
+                             {<<"EndingHashKey">>, <<"68056473384187692692674921486353642280">>},
+                             {<<"StartingHashKey">>, <<"34028236692093846346337460743176821145">>}
+                         ]},
+                         {<<"SequenceNumberRange">>, [
+                             {<<"StartingSequenceNumber">>, <<"49579844037727333356165064238440708846556371693205002258">>}
+                         ]}
+                     ], [
+                         {<<"ShardId">>, <<"shardId-000000000002">>},
+                         {<<"HashKeyRange">>, [
+                             {<<"EndingHashKey">>, <<"102084710076281539039012382229530463436">>},
+                             {<<"StartingHashKey">>, <<"68056473384187692692674921486353642281">>}
+                         ]},
+                         {<<"SequenceNumberRange">>, [
+                             {<<"StartingSequenceNumber">>, <<"49579844037749634101363594861582244564829020124710982690">>}
+                         ]}
+                     ], [
+                         {<<"ShardId">>, <<"shardId-000000000003">>},
+                         {<<"HashKeyRange">>, [
+                             {<<"EndingHashKey">>, <<"136112946768375385385349842972707284581">>},
+                             {<<"StartingHashKey">>, <<"102084710076281539039012382229530463437">>}
+                         ]},
+                         {<<"SequenceNumberRange">>, [
+                             {<<"StartingSequenceNumber">>, <<"49579844037771934846562125484723780283101668556216963122">>}
+                         ]}
+                     ]
+                ]}
+             ]}
+            }
+        )],
+
+    output_tests(?_f(erlcloud_kinesis:list_shards(<<"staging">>)), Tests).
 
 %% ListStreams test based on the API examples:
 %% http://docs.aws.amazon.com/kinesis/latest/APIReference/API_ListStreams.html
@@ -826,7 +954,7 @@ merge_shards_output_tests(_) ->
     Tests =
         [?_kinesis_test(
             {"MergeShards example response", "{}",
-             {ok, jsx:decode(<<"{}">>)}})
+             {ok, decode(<<"{}">>)}})
         ],
 
     output_tests(?_f(erlcloud_kinesis:merge_shards(<<"test">>, <<"shardId-000000000001">>, <<"shardId-000000000003">>)), Tests).
@@ -853,7 +981,7 @@ split_shards_output_tests(_) ->
     Tests =
         [?_kinesis_test(
             {"SplitShard example response", "{}",
-             {ok, jsx:decode(<<"{}">>)}})
+             {ok, decode(<<"{}">>)}})
         ],
 
     output_tests(?_f(erlcloud_kinesis:split_shards(<<"test">>, <<"shardId-000000000000">>, <<"10">>)), Tests).
@@ -900,7 +1028,7 @@ list_tags_for_stream_output_tests(_) ->
                  \"Tags\": [{\"Key\":\"key1\",\"Value\":\"val1\"}]}",
     Tests = [?_kinesis_test({"List tags response test",
                              Response,
-                             {ok, jsx:decode(list_to_binary(Response))}})],
+                             {ok, decode(list_to_binary(Response))}})],
     output_tests(
         ?_f(erlcloud_kinesis:list_tags_for_stream(<<"stream">>, <<"key1">>, 1)),
         Tests
@@ -948,3 +1076,6 @@ remove_tags_from_stream_output_tests(_) ->
                                                      [<<"key">>])),
         Tests
     ).
+
+decode(S) ->
+    jsx:decode(S, [{return_maps, false}]).
