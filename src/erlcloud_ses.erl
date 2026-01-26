@@ -12,7 +12,6 @@
 %%  * ListIdentityPolicies
 %%  * ListVerifiedEmailAddresses (deprecated; use ListIdentities)
 %%  * PutIdentityPolicy
-%%  * SendRawEmail
 %%  * VerifyEmailAddress (deprecated; use VerifyEmailIdentity)
 %%
 %% @end
@@ -21,8 +20,13 @@
 -module(erlcloud_ses).
 
 -export([configure/2, configure/3, new/2, new/3]).
+-export([create_custom_verification_email_template/6, create_custom_verification_email_template/7]).
+
+-export([delete_custom_verification_email_template/1, delete_custom_verification_email_template/2]).
 
 -export([delete_identity/1, delete_identity/2]).
+
+-export([get_custom_verification_email_template/1, get_custom_verification_email_template/2]).
 
 -export([get_identity_dkim_attributes/1, get_identity_dkim_attributes/2]).
 -export([get_identity_notification_attributes/1, get_identity_notification_attributes/2]).
@@ -31,17 +35,27 @@
 -export([get_send_quota/0, get_send_quota/1]).
 -export([get_send_statistics/0, get_send_statistics/1]).
 
+-export([list_custom_verification_email_templates/0, list_custom_verification_email_templates/1]).
+
 -export([list_identities/0, list_identities/1, list_identities/2]).
 
+-export([send_custom_verification_email/2, send_custom_verification_email/3]).
+
 -export([send_email/4, send_email/5, send_email/6]).
+
+-export([send_raw_email/1, send_raw_email/2, send_raw_email/3]).
 
 -export([set_identity_dkim_enabled/2, set_identity_dkim_enabled/3]).
 -export([set_identity_feedback_forwarding_enabled/2, set_identity_feedback_forwarding_enabled/3]).
 -export([set_identity_notification_topic/3, set_identity_notification_topic/4]).
+-export([set_identity_headers_in_notifications_enabled/3, set_identity_headers_in_notifications_enabled/4]).
+
+-export([update_custom_verification_email_template/2, update_custom_verification_email_template/3]).
 
 -export([verify_domain_dkim/1, verify_domain_dkim/2]).
 -export([verify_email_identity/1, verify_email_identity/2]).
 -export([verify_domain_identity/1, verify_domain_identity/2]).
+
 
 -include("erlcloud.hrl").
 -include("erlcloud_aws.hrl").
@@ -51,6 +65,9 @@
 %%%------------------------------------------------------------------------------
 %%% Common types
 %%%------------------------------------------------------------------------------
+
+-type custom_template_attribute_names() :: template_name | from_email_address | template_subject | template_content | success_redirect_url | failure_redirect_url .
+-type custom_template_attributes() :: [{custom_template_attribute_names(), string()}].
 
 -type identity() :: string() | binary().
 
@@ -66,10 +83,14 @@
 
 -type verification_status() :: pending | success | failed | temporary_failure | not_started.
 
--export_type([identity/0, identities/0,
+-type notification_type() :: bounce | complaint | delivery.
+
+-export_type([custom_template_attribute_names/0, custom_template_attributes/0,
+              identity/0, identities/0,
               email/0, emails/0,
               domain/0,
-              verification_status/0]).
+              verification_status/0,
+              notification_type/0]).
 
 %%%------------------------------------------------------------------------------
 %%% Library initialization
@@ -97,6 +118,80 @@ configure(AccessKeyID, SecretAccessKey, Host) ->
     ok.
 
 default_config() -> erlcloud_aws:default_config().
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% SES API:
+%% [https://docs.aws.amazon.com/ses/latest/APIReference/API_CreateCustomVerificationEmailTemplate.html]
+%%
+%% ===Example===
+%%
+%% Creates a new custom verification email template.
+%%
+%% `
+%%  ok = erlcloud_ses:create_custom_verification_email_template_result(
+%%          "templaneName",
+%%          "support@example.com",
+%%          "Welcome to support",
+%%          "limited html content",
+%%          "https://www.example.com/success",
+%%          "https://www.example.com/failure" ).
+%% '
+%%
+%% Please consult the following for what is and not allowed in the HTML content parameter
+%% [https://docs.aws.amazon.com/ses/latest/DeveloperGuide/custom-verification-emails.html#custom-verification-emails-faq]
+%% @end
+%%------------------------------------------------------------------------------
+
+-type create_custom_verification_email_template_result() :: ok | { error, term() }.
+
+-spec create_custom_verification_email_template( string(), string(), string(), string(), string(), string() ) -> create_custom_verification_email_template_result().
+create_custom_verification_email_template(TemplateName, FromEmailAddress, TemplateSubject, TemplateContent, SuccessRedirectionURL, FailureRedirectionURL) ->
+  create_custom_verification_email_template(TemplateName, FromEmailAddress, TemplateSubject, TemplateContent, SuccessRedirectionURL, FailureRedirectionURL ,default_config()).
+
+-spec create_custom_verification_email_template(string(), string(), string(), string(), string(), string(), aws_config()) ->
+  create_custom_verification_email_template_result().
+create_custom_verification_email_template(TemplateName, FromEmailAddress, TemplateSubject, TemplateContent, SuccessRedirectionURL, FailureRedirectionURL, Config) ->
+  Params = encode_params([{template_name, TemplateName},
+    {from_email_address, FromEmailAddress},
+    {template_subject, TemplateSubject},
+    {template_content, TemplateContent},
+    {success_redirect_url, SuccessRedirectionURL},
+    {failure_redirect_url, FailureRedirectionURL}]),
+  case ses_request(Config, "CreateCustomVerificationEmailTemplate", Params) of
+    {ok, _Doc} -> ok;
+    {error, Reason} -> {error, Reason}
+  end.
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% SES API:
+%% [https://docs.aws.amazon.com/ses/latest/APIReference/API_DeleteCustomVerificationEmailTemplate.html]
+%%
+%% ===Example===
+%%
+%% Deletes an existing custom verification email template.
+%%
+%% `
+%%  ok = erlcloud_ses:delete_custom_verification_email_template("templaneName").
+%% '
+%%
+%% @end
+%%------------------------------------------------------------------------------
+
+-type delete_custom_verification_email_template_result() :: ok | {error,term()}.
+
+-spec delete_custom_verification_email_template(string()) -> delete_custom_verification_email_template_result().
+delete_custom_verification_email_template(TemplateName) ->
+  delete_custom_verification_email_template(TemplateName, default_config()).
+
+-spec delete_custom_verification_email_template(string(), aws_config()) -> delete_custom_verification_email_template_result().
+delete_custom_verification_email_template(TemplateName, Config) ->
+  Params = encode_params([{template_name, TemplateName }]),
+  case ses_request(Config, "DeleteCustomVerificationEmailTemplate", Params) of
+    {ok, _Doc} -> ok;
+    {error, Reason} -> {error, Reason}
+  end.
 
 
 %%%------------------------------------------------------------------------------
@@ -132,6 +227,52 @@ delete_identity(Identity, Config) ->
         {error, Reason} -> {error, Reason}
     end.
 
+%%------------------------------------------------------------------------------
+%% @doc
+%% SES API:
+%% [https://docs.aws.amazon.com/ses/latest/APIReference/API_GetCustomVerificationEmailTemplate.html]
+%%
+%% ===Example===
+%%
+%% Returns the custom email verification template for the template name you specify.
+%%
+%% `
+%%  {ok,[{template_name,"templateName"},
+%%     {from_email_address,"support@example.com"},
+%%     {template_subject,"Welcome to Example.com"},
+%%     {template_content,"<html>\n<head></head>\n <body style=\"font-family:sans-serif;\">\n<h1 style=
+%%          \"text-align:center\">Ready to start with Example.com</h1>\n<p>Example.com is very happy to
+%%          welcome you to the ACME system Please click\non the link below to activate
+%%          your account.</p>\n</body>\n</html>"},
+%%     {success_redirect_url,"https://www.example.com/success"},
+%%     {failure_redirect_url,"http://example.arilia.com"}]} =
+%%        erlcloud_ses:delete_custom_verification_email_template("templaneName").
+%% '
+%%
+%% @end
+%%------------------------------------------------------------------------------
+
+-type get_custom_verification_email_template_result() :: {ok, custom_template_attributes()} | {error, term()}.
+
+-spec get_custom_verification_email_template(string()) -> get_custom_verification_email_template_result().
+get_custom_verification_email_template(TemplateName) ->
+  get_custom_verification_email_template(TemplateName, default_config()).
+
+-spec get_custom_verification_email_template( string() , aws_config() ) -> get_custom_verification_email_template_result().
+get_custom_verification_email_template(TemplateName, Config) ->
+  Params = encode_params([{template_name, TemplateName}]),
+  case ses_request(Config, "GetCustomVerificationEmailTemplate", Params) of
+    { ok , Doc } ->
+      {ok, erlcloud_xml:decode(
+        [{template_name, "GetCustomVerificationEmailTemplateResult/TemplateName", text},
+          {from_email_address, "GetCustomVerificationEmailTemplateResult/FromEmailAddress", text},
+          {template_subject, "GetCustomVerificationEmailTemplateResult/TemplateSubject", text},
+          {template_content, "GetCustomVerificationEmailTemplateResult/TemplateContent", text},
+          {success_redirect_url, "GetCustomVerificationEmailTemplateResult/SuccessRedirectionURL", text},
+          {failure_redirect_url, "GetCustomVerificationEmailTemplateResult/FailureRedirectionURL", text}],
+        Doc)};
+    {error, Reason} -> {error, Reason}
+  end.
 
 %%%------------------------------------------------------------------------------
 %%% GetIdentityDkimAttributes
@@ -368,6 +509,48 @@ get_send_statistics(Config) ->
         {error, Reason} -> {error, Reason}
     end.
 
+%%------------------------------------------------------------------------------
+%% @doc
+%% SES API:
+%% [https://docs.aws.amazon.com/ses/latest/APIReference/API_ListCustomVerificationEmailTemplates.html]
+%%
+%% ===Example===
+%%
+%% Lists the existing custom verification email templates for your account in the current AWS Region.
+%%
+%% `
+%%  {ok,[{custom_templates,[[{template_name,"template1"},
+%%                         {from_email_address,"support@example.com"},
+%%                         {template_subject,"Welcome to support"},
+%%                         {success_redirect_url,"https://www.example.com/success"},
+%%                         {failure_redirect_url,"https://www.example.com/failure"}],
+%%                        [{template_name,"template2"},
+%%                         {from_email_address,"applications@example.com"},
+%%                         {template_subject,"Welcome to Applications"},
+%%                         {success_redirect_url,"https://www.example.com/success"},
+%%                         {failure_redirect_url,"https://www.example.com/failure"}]]}]} =
+%%                  erlcloud_ses:list_custom_verification_email_templates().
+%% '
+%%
+%% @end
+%%------------------------------------------------------------------------------
+
+-type list_custom_verification_email_templates_result() :: {ok, [{custom_templates, [custom_template_attributes()]}]} | {error , term()}.
+
+-spec list_custom_verification_email_templates() -> list_custom_verification_email_templates_result().
+list_custom_verification_email_templates() ->
+  list_custom_verification_email_templates(default_config()).
+
+-spec list_custom_verification_email_templates(aws_config()) -> list_custom_verification_email_templates_result().
+list_custom_verification_email_templates(Config) ->
+  Params = [{"MaxResults",50}],
+  case ses_request(Config, "ListCustomVerificationEmailTemplates", Params) of
+    { ok , Doc } ->
+      {ok, erlcloud_xml:decode([{custom_templates, "ListCustomVerificationEmailTemplatesResult/CustomVerificationEmailTemplates/member", fun decode_custom_template_entry/1},
+        {next_token, "ListCustomVerificationEmailTemplatesResult/NextToken", optional_text}],
+        Doc)};
+    {error, Reason } -> {error, Reason}
+  end.
 
 %%%------------------------------------------------------------------------------
 %%% ListIdentities
@@ -431,6 +614,38 @@ list_identities(Opts, Config) ->
         {error, Reason} -> {error, Reason}
     end.
 
+%%------------------------------------------------------------------------------
+%% @doc
+%% SES API:
+%% [https://docs.aws.amazon.com/ses/latest/APIReference/API_SendCustomVerificationEmail.html]
+%%
+%% ===Example===
+%%
+%% Send a custom verification email.
+%%
+%% `
+%%  {ok, [{message_id, "abcdefghijkllkjdlkj"}]} =
+%%            erlcloud_ses:send_custom_verification_email_result("newclient@newco.com", "templateName").
+%% '
+%%
+%% @end
+%%------------------------------------------------------------------------------
+
+-type send_custom_verification_email_result() :: {ok, term()} | {error, term()}.
+
+-spec send_custom_verification_email(string(), string()) -> send_custom_verification_email_result().
+send_custom_verification_email(EmailAddress, TemplateName) ->
+  send_custom_verification_email(EmailAddress, TemplateName, default_config()).
+
+-spec send_custom_verification_email(string(), string(), aws_config()) -> send_custom_verification_email_result().
+send_custom_verification_email(EmailAddress, TemplateName, Config) ->
+  Params = encode_params([{email_address, EmailAddress},
+    {template_name, TemplateName}]),
+  case ses_request(Config, "SendCustomVerificationEmail", Params) of
+    {ok, Doc} ->
+      {ok, erlcloud_xml:decode([{message_id, "SendCustomVerificationEmailResult/MessageId", text}], Doc)};
+    {error, Reason} -> {error, Reason}
+  end.
 
 %%%------------------------------------------------------------------------------
 %%% SendEmail
@@ -452,8 +667,10 @@ list_identities(Opts, Config) ->
 
 -type send_email_source() :: email().
 
--type send_email_opt() :: {reply_to_addresses, emails()} |
-                          {return_path, email()}.
+-type send_email_opt() :: {configuration_set_name, string() | binary()} |
+                          {reply_to_addresses, emails()} |
+                          {return_path, email()} |
+                          {tags, [{string() | binary(), string() | binary()}]}.
 
 -type send_email_opts() :: [send_email_opt()].
 
@@ -519,6 +736,66 @@ send_email(Destination, Body, Subject, Source, Opts, Config) ->
     case ses_request(Config, "SendEmail", Params) of
         {ok, Doc} ->
             {ok, erlcloud_xml:decode([{message_id, "SendEmailResult/MessageId", text}], Doc)};
+        {error, Reason} -> {error, Reason}
+    end.
+
+%%%------------------------------------------------------------------------------
+%%% SendRawEmail
+%%%------------------------------------------------------------------------------
+
+-type send_raw_email_message() :: binary() | string().
+
+-type send_raw_email_opt() :: {source, email()} |
+                              {destinations, emails()}.
+
+-type send_raw_email_opts() :: [send_raw_email_opt()].
+
+-type send_raw_email_result() :: {ok, [{message_id, string()}]} | {error, term()}.
+
+
+send_raw_email(RawMessage) ->
+    send_raw_email(RawMessage, [], default_config()).
+
+send_raw_email(RawMessage, #aws_config{} = Config) ->
+    send_raw_email(RawMessage, [], Config);
+send_raw_email(RawMessage, Opts) ->
+    send_raw_email(RawMessage, Opts, default_config()).
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% SES API:
+%% [https://docs.aws.amazon.com/ses/latest/APIReference/API_SendRawEmail.html]
+%%
+%% ===Example===
+%%
+%% Send a raw email.
+%%
+%% `
+%% {ok, [{message_id, "00000131d51d2292-159ad6eb-077c-46e6-ad09-ae7c05925ed4-000000"}]} =
+%%     erlcloud_ses:send_raw_email(<<"From: b@from.com\nTo: a@to.com\nSubject: Subject\nMIME-Version: 1.0\nContent-type: Multipart/Mixed; boundary=\"NextPart\"\n\n--NextPart\nContent-Type: text/plain\n\nEmail Body\n\n--NextPart--">>, []).
+%% '
+%%
+%% All supported inputs.
+%%
+%% `
+%%  {ok, [{message_id, "00000131d51d2292-159ad6eb-077c-46e6-ad09-ae7c05925ed4-000000"}]} =
+%% erlcloud_ses:send_email(<<"To: d@to.com\nCC: c@cc.com\nBCC: a@bcc.com, b@bcc.com\nSubject: Subject\nMIME-Version: 1.0\nContent-type: Multipart/Mixed; boundary=\"NextPart\"\n\n--NextPart\nContent-Type: text/plain\n\nEmail Body\n\n--NextPart--">>,
+%%                         [{destinations, [<<"a@bcc.com">>, "b@bcc.com", <<"c@cc.com">>, "d@to.com"]},
+%%                          {source, "e@from.com"}].
+%% '
+%% @end
+%%------------------------------------------------------------------------------
+
+-spec send_raw_email(send_raw_email_message(),
+                     send_raw_email_opts(),
+                     aws_config()) ->
+        send_raw_email_result().
+send_raw_email(RawMessage, Opts, Config) ->
+    Params = encode_params([{raw_message, RawMessage},
+                            {send_raw_email_opts, Opts}]),
+    case ses_request(Config, "SendRawEmail", Params) of
+        {ok, Doc} ->
+            {ok, erlcloud_xml:decode([{message_id, "SendRawEmailResult/MessageId", text}], Doc)};
         {error, Reason} -> {error, Reason}
     end.
 
@@ -601,8 +878,6 @@ set_identity_feedback_forwarding_enabled(Identity, ForwardingEnabled, Config) ->
 %%% SetIdentityNotificationTopic
 %%%------------------------------------------------------------------------------
 
--type notification_type() :: bounce | complaint | delivery.
-
 -type sns_topic() :: string() | binary().
 
 -type set_identity_notification_topic_result() :: ok | {error, term()}.
@@ -642,6 +917,84 @@ set_identity_notification_topic(Identity, NotificationType, SnsTopic, Config) ->
         {error, Reason} -> {error, Reason}
     end.
 
+
+%%%------------------------------------------------------------------------------
+%%% SetIdentityHeadersInNotificationsEnabled
+%%%------------------------------------------------------------------------------
+
+set_identity_headers_in_notifications_enabled(Identity, NotificationType, Enabled) ->
+    set_identity_headers_in_notifications_enabled(Identity, NotificationType, Enabled, default_config()).
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% SES API:
+%% [https://docs.aws.amazon.com/ses/latest/APIReference/API_SetIdentityHeadersInNotificationsEnabled.html]
+%%
+%% ===Example===
+%%
+%% Enable headers in notifications for an identity.
+%%
+%% `
+%%  ok = erlcloud_ses:set_identity_headers_in_notifications_enabled(<<"user@example.com">>, bounce, true).
+%% '
+%%
+%% @end
+%%------------------------------------------------------------------------------
+
+-spec set_identity_headers_in_notifications_enabled(identity(),
+                                                    notification_type(),
+                                                    boolean(),
+                                                    aws_config()) ->
+    ok | {error, term()}.
+set_identity_headers_in_notifications_enabled(Identity, NotificationType, Enabled, Config) ->
+    Params = encode_params([{identity, Identity},
+                            {notification_type, NotificationType},
+                            {enabled, Enabled}]),
+    case ses_request(Config, "SetIdentityHeadersInNotificationsEnabled", Params) of
+        {ok, _Doc} -> ok;
+        {error, Reason} -> {error, Reason}
+    end.
+
+%%------------------------------------------------------------------------------
+%% @doc
+%% SES API:
+%% [https://docs.aws.amazon.com/ses/latest/APIReference/API_UpdateCustomVerificationEmailTemplate.html]
+%%
+%%  Template attributes
+%%   { template_name , string() }
+%%   { from_email_address , string() }
+%%   { template_subject , string() }
+%%   { template_content , string() }
+%%   { success_redirect_url , string() }
+%%   { failure_redirect_url , string() }
+%%
+%% ===Example===
+%%
+%% Updates an existing custom verification email template.
+%%
+%% `
+%%  ok = erlcloud_ses:update_custom_verification_email_template("templateName",
+%%                                                     [{template_subject, "New subject"},
+%%                                                      {from_email_address, "support2@example.com"}]).
+%% '
+%% Please consult the following for what is and not allowed in the HTML content parameter
+%% [https://docs.aws.amazon.com/ses/latest/DeveloperGuide/custom-verification-emails.html#custom-verification-emails-faq]
+%% @end
+%%------------------------------------------------------------------------------
+
+-type update_custom_verification_email_template_result() :: ok | { error, term() }.
+
+-spec update_custom_verification_email_template(string(), [{atom(), string()}]) -> update_custom_verification_email_template_result().
+update_custom_verification_email_template(TemplateName, Attributes) ->
+  update_custom_verification_email_template(TemplateName, Attributes,default_config()).
+
+-spec update_custom_verification_email_template(string(), [{atom(), string()}], aws_config()) -> update_custom_verification_email_template_result().
+update_custom_verification_email_template(TemplateName, Attributes, Config) ->
+  Params = encode_params([{template_name, TemplateName} | Attributes]),
+  case ses_request(Config, "UpdateCustomVerificationEmailTemplate", Params) of
+    {ok, _Doc} -> ok ;
+    {error, Reason} -> {error, Reason}
+  end.
 
 %%%------------------------------------------------------------------------------
 %%% VerifyDomainDkim
@@ -718,7 +1071,6 @@ verify_domain_identity(Domain, Config) ->
         {error, Reason} -> {error, Reason}
     end.
 
-
 %%%------------------------------------------------------------------------------
 %%% VerifyEmailIdentity
 %%%------------------------------------------------------------------------------
@@ -768,6 +1120,8 @@ encode_params([{destination, Destination} | T], Acc) ->
     encode_params(T, encode_destination(Destination, Acc));
 encode_params([{email_address, EmailAddress} | T], Acc) when is_list(EmailAddress); is_binary(EmailAddress) ->
     encode_params(T, [{"EmailAddress", EmailAddress} | Acc]);
+encode_params([{enabled, Enabled} | T], Acc) when is_boolean(Enabled) ->
+    encode_params(T, [{"Enabled", Enabled} | Acc]);
 encode_params([{dkim_enabled, DkimEnabled} | T], Acc) when is_boolean(DkimEnabled) ->
     encode_params(T, [{"DkimEnabled", DkimEnabled} | Acc]);
 encode_params([{domain, Domain} | T], Acc) when is_list(Domain); is_binary(Domain) ->
@@ -786,14 +1140,36 @@ encode_params([{next_token, NextToken} | T], Acc) when is_list(NextToken); is_bi
     encode_params(T, [{"NextToken", NextToken} | Acc]);
 encode_params([{notification_type, NotificationType} | T], Acc) ->
     encode_params(T, encode_notification_type(NotificationType, Acc));
+encode_params([{raw_message, RawMessage} | T], Acc) ->
+    encode_params(T,  [{"RawMessage.Data", base64:encode(RawMessage)} | Acc]);
 encode_params([{send_email_opts, Opts} | T], Acc) ->
     encode_params(T, encode_opts(Opts, Acc));
+encode_params([{send_raw_email_opts, Opts} | T], Acc) ->
+    encode_params(T, encode_raw_opts(Opts, Acc));
 encode_params([{sns_topic, SnsTopic} | T], Acc) when is_list(SnsTopic); is_binary(SnsTopic) ->
     encode_params(T, [{"SnsTopic", SnsTopic} | Acc]);
 encode_params([{source, Source} | T], Acc) when is_list(Source); is_binary(Source) ->
     encode_params(T, [{"Source", Source} | Acc]);
 encode_params([{subject, Subject} | T], Acc) ->
     encode_params(T, encode_content("Message.Subject", Subject, Acc));
+encode_params([{template_name, TemplateName} | T], Acc)
+    when is_list(TemplateName); is_binary(TemplateName) ->
+      encode_params(T, [{"TemplateName", TemplateName} | Acc]);
+encode_params([{from_email_address, FromEmailAddress} | T], Acc)
+    when is_list(FromEmailAddress); is_binary(FromEmailAddress) ->
+      encode_params(T, [{"FromEmailAddress", FromEmailAddress} | Acc]);
+encode_params([{template_subject, TemplateSubject} | T], Acc)
+    when is_list(TemplateSubject); is_binary(TemplateSubject) ->
+      encode_params(T, [{"TemplateSubject", TemplateSubject} | Acc]);
+encode_params([{template_content, TemplateContent} | T], Acc)
+    when is_list(TemplateContent); is_binary(TemplateContent) ->
+      encode_params(T, [{"TemplateContent", TemplateContent} | Acc]);
+encode_params([{success_redirect_url, SuccessRedirectionURL} | T], Acc)
+    when is_list(SuccessRedirectionURL); is_binary(SuccessRedirectionURL) ->
+      encode_params(T, [{"SuccessRedirectionURL", SuccessRedirectionURL} | Acc]);
+encode_params([{failure_redirect_url, FailureRedirectionURL} | T], Acc)
+    when is_list(FailureRedirectionURL); is_binary(FailureRedirectionURL) ->
+      encode_params(T, [{"FailureRedirectionURL", FailureRedirectionURL} | Acc]);
 encode_params([Option | _], _Acc) ->
     error({erlcloud_ses, {invalid_parameter, Option}}).
 
@@ -802,11 +1178,18 @@ encode_list(Prefix, List, Acc) ->
 
 encode_list(_, [], _, Acc) ->
     Acc;
+encode_list(Prefix, [{Name, Value} | T], N, Acc) when is_list(Name) orelse is_binary(Name), 
+                                                      is_list(Value) orelse is_binary(Value) ->
+    encode_list(Prefix, T, N + 1,
+     [{encode_param_index(Prefix, N) ++ ".Name", Name},
+      {encode_param_index(Prefix, N) ++ ".Value", Value} | Acc]);
 encode_list(Prefix, [H | T], N, Acc) when is_list(H); is_binary(H) ->
-    encode_list(Prefix, T, N + 1, [{Prefix ++ ".member." ++ integer_to_list(N), H} | Acc]);
+    encode_list(Prefix, T, N + 1, [{encode_param_index(Prefix, N), H} | Acc]);
 encode_list(Prefix, V, N, Acc) when is_list(V); is_binary(V) ->
     encode_list(Prefix, [V], N, Acc).
-
+  
+encode_param_index(Prefix, N) -> Prefix ++ ".member." ++ integer_to_list(N).
+  
 encode_destination_pairs([], Acc) ->
     Acc;
 encode_destination_pairs([{bcc_addresses, List} | T], Acc) ->
@@ -825,6 +1208,12 @@ encode_destination([ [_|_] | _ ] = ToAddresses, Acc) ->
 encode_destination(ToAddress, Acc) when is_list(ToAddress); is_binary(ToAddress) ->
     %% Single entry
     encode_destination_pairs([{to_addresses, [ToAddress]}], Acc).
+
+encode_destinations([Dest | _T] = Destinations, Acc) when is_list(Dest); is_binary(Dest) ->
+    encode_list("Destinations", Destinations, Acc);
+encode_destinations(ToAddress, Acc) when is_list(ToAddress); is_binary(ToAddress) ->
+    %% Single entry
+    encode_destinations([ToAddress], Acc).
 
 encode_content_pairs(_, [], Acc) ->
     Acc;
@@ -856,11 +1245,21 @@ encode_body(Body, Acc) when is_list(Body); is_binary(Body) ->
     
 encode_opts([], Acc) ->
     Acc;
+encode_opts([{configuration_set_name, ConfigurationSet} | T], Acc) ->
+    encode_opts(T,  [{"ConfigurationSetName", ConfigurationSet} | Acc]);
 encode_opts([{reply_to_addresses, List} | T], Acc) ->
     encode_opts(T, encode_list("ReplyToAddresses", List, Acc));
 encode_opts([{return_path, ReturnPath} | T], Acc) ->
-    encode_opts(T, [{"ReturnPath", ReturnPath} | Acc]).
+    encode_opts(T, [{"ReturnPath", ReturnPath} | Acc]);
+encode_opts([{tags, Tags} | T], Acc) ->
+    encode_opts(T, encode_list("Tags", Tags, Acc)).
 
+encode_raw_opts([], Acc) ->
+    Acc;
+encode_raw_opts([{source, Source} | T], Acc) when is_list(Source); is_binary(Source) ->
+    encode_raw_opts(T, [{"Source", Source} | Acc]);
+encode_raw_opts([{destinations, Destination} | T], Acc) ->
+    encode_raw_opts(T, encode_destinations(Destination, Acc)).
 
 encode_identity_type(email_address, Acc) ->
     [{"IdentityType", "EmailAddress"} | Acc];
@@ -902,6 +1301,15 @@ decode_dkim_attributes(DkimAttributesDoc) ->
 decode_notification_attributes(NotificationAttributesDoc) ->
     [{erlcloud_xml:get_text("key", Entry),
       erlcloud_xml:decode([{forwarding_enabled, "value/ForwardingEnabled", boolean},
+                           {headers_in_bounce_notifications_enabled,
+                            "value/HeadersInBounceNotificationsEnabled",
+                            boolean},
+                           {headers_in_complaint_notifications_enabled,
+                            "value/HeadersInComplaintNotificationsEnabled",
+                            boolean},
+                           {headers_in_delivery_notifications_enabled,
+                            "value/HeadersInDeliveryNotificationsEnabled",
+                            boolean},
                            {bounce_topic, "value/BounceTopic", optional_text},
                            {complaint_topic, "value/ComplaintTopic", optional_text},
                            {delivery_topic, "value/DeliveryTopic", optional_text}],
@@ -926,6 +1334,18 @@ decode_send_data_points(SendDataPointsDoc) ->
                          Entry)
         || Entry <- SendDataPointsDoc].
 
+%% Added for decoding a custom template entry with the ListCustomVerificationEmailTemplates command
+%% Notice that the ListCustomVerificationEmailTemplates API does not return the TemplateContent
+%% You must use GetCustomVerificationEmailTemplate to retrieve TemplateContent
+decode_custom_template_entry(CustomTemplatesDoc) ->
+  [ erlcloud_xml:decode([
+    { template_name , "TemplateName" , text } ,
+    { from_email_address , "FromEmailAddress" , text  } ,
+    { template_subject , "TemplateSubject" , text  } ,
+    { success_redirect_url , "SuccessRedirectionURL" , text } ,
+    { failure_redirect_url , "FailureRedirectionURL" , text } ],
+    Entry)
+    || Entry <- CustomTemplatesDoc ].
 
 decode_error_code("IncompleteSignature") -> incomplete_signature;
 decode_error_code("InternalFailure") -> internal_failure;
@@ -943,7 +1363,17 @@ decode_error_code("OptInRequired") -> opt_in_required;
 decode_error_code("RequestExpired") -> request_expired;
 decode_error_code("ServiceUnavailable") -> service_unavailable;
 decode_error_code("Throttling") -> throttling;
-decode_error_code("ValidationError") -> validation_error.
+decode_error_code("ValidationError") -> validation_error;
+decode_error_code("LimitExceeded") -> limit_exceeded;
+decode_error_code("ConfigurationSetDoesNotExist") -> configuration_set_does_not_exist;
+decode_error_code("CustomVerificationEmailTemplateDoesNotExist") -> custom_verification_email_template_does_not_exist;
+decode_error_code("ProductionAccessNotGranted") -> production_access_not_granted;
+decode_error_code("CustomVerificationEmailInvalidContent") -> custom_verification_email_invalid_content;
+decode_error_code("FromEmailAddressNotVerified") -> from_email_address_not_verified;
+decode_error_code("CustomVerificationEmailTemplateAlreadyExists") -> custom_verification_email_template_already_exists;
+decode_error_code("AccountSendingPaused") -> account_sending_paused;
+decode_error_code("ConfigurationSetSendingPaused") -> configuration_set_sending_paused;
+decode_error_code("MailFromDomainNotVerified") -> mail_from_domain_not_verified.
 
 
 decode_error(Doc) ->
@@ -956,38 +1386,10 @@ decode_error(Doc) ->
 %%%------------------------------------------------------------------------------
 
 ses_request(Config, Action, Params) ->
-    case erlcloud_aws:update_config(Config) of
-        {ok, Config1} ->
-            ses_request_no_update(Config1, Action, Params);
-        {error, Reason} ->
-            {error, Reason}
-    end.
-
-ses_request_no_update(Config, Action, Params) ->
-    Date = httpd_util:rfc1123_date(),
-    Signature = base64:encode_to_string(
-                  erlcloud_util:sha256_mac(Config#aws_config.secret_access_key, Date)),
-    Auth = lists:flatten(
-             ["AWS3-HTTPS AWSAccessKeyId=",
-              Config#aws_config.access_key_id, 
-              ",Algorithm=HmacSHA256,Signature=",
-              Signature]),
-             
-    Headers = [{"Date", Date},
-               {"X-Amzn-Authorization", Auth}],
-    Headers2 = case Config#aws_config.security_token of
-                   undefined ->
-                       Headers;
-                   Token ->
-                       [{"x-amz-security-token", Token} | Headers]
-               end,
-    QParams = [{"Action", Action}, 
-               {"Version", ?API_VERSION} | 
+    QParams = [{"Action", Action},
+               {"Version", ?API_VERSION} |
                Params],
-    Query = erlcloud_http:make_query_string(QParams),
-
-    case erlcloud_aws:aws_request_form(
-           post, "https", Config#aws_config.ses_host, 443, "/", Query, Headers2, Config) of
+    case erlcloud_aws:aws_request4(post, "https", Config#aws_config.ses_host, 443, "/", QParams, "ses", Config) of
         {ok, Body} ->
             {ok, element(1, xmerl_scan:string(binary_to_list(Body)))};
         {error, {http_error, Code, _, ErrBody}} when Code >= 400; Code =< 599 ->

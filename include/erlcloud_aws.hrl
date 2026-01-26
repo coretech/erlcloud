@@ -1,18 +1,30 @@
 -ifndef(erlcloud_aws_hrl).
 -define(erlcloud_aws_hrl, 0).
 
--record(aws_assume_role,{
-    role_arn :: string() | undefined,
-    session_name = "erlcloud" :: string(),
-    duration_secs =  900 :: 900..3600,
-    external_id :: string() | undefined
+-record(aws_assume_role, {
+    role_arn                   :: string() | undefined,
+    session_name  = "erlcloud" :: string(),
+    duration_secs = 900        :: 900..43200,
+    external_id                :: string() | undefined
 }).
 
 -type(aws_assume_role() :: #aws_assume_role{}).
 
+-record(hackney_client_options, {
+	  insecure = true :: boolean() | undefined,
+	  proxy = undefined :: binary() | {binary(), non_neg_integer()} | {socks5, binary(), binary()} | {connect, binary(), binary()} | undefined,
+	  proxy_auth = undefined :: {binary(), binary()} | undefined
+}).
+
+-type(hackney_client_options() :: #hackney_client_options{}).
+
 -record(aws_config, {
+          access_analyzer_host="access-analyzer.us-east-1.amazonaws.com"::string(),
+          securityhub_host="securityhub.us-east-1.amazonaws.com"::string(),
           as_host="autoscaling.amazonaws.com"::string(),
+          ec2_protocol="https"::string(),
           ec2_host="ec2.amazonaws.com"::string(),
+          ec2_port=undefined::non_neg_integer()|undefined,
           iam_host="iam.amazonaws.com"::string(),
           sts_host="sts.amazonaws.com"::string(),
           s3_scheme="https://"::string(),
@@ -27,6 +39,8 @@
           s3_bucket_access_method=vhost::vhost|path|auto,
           s3_bucket_after_host=false::boolean(),
           sdb_host="sdb.amazonaws.com"::string(),
+          cognito_user_pools_host ="cognito-idp.eu-west-1.amazonaws.com"::string(),
+          cognito_user_pools_scheme ="https://"::string()|undefined,
           elb_host="elasticloadbalancing.amazonaws.com"::string(),
           rds_host="rds.us-east-1.amazonaws.com"::string(),
           ses_host="email.us-east-1.amazonaws.com"::string(),
@@ -65,7 +79,7 @@
           kinesis_scheme="https://"::string(),
           kinesis_host="kinesis.us-east-1.amazonaws.com"::string(),
           kinesis_port=80::non_neg_integer(),
-          kinesis_retry=fun erlcloud_kinesis_impl:retry/2::erlcloud_kinesis_impl:retry_fun(),
+          kinesis_retry=fun erlcloud_kinesis_impl:retry/3::erlcloud_kinesis_impl:retry_fun(),
           glue_scheme="https://"::string(),
           glue_host="glue.us-east-1.amazonaws.com"::string(),
           glue_port=443::non_neg_integer(),
@@ -88,6 +102,9 @@
           autoscaling_scheme="https://"::string(),
           autoscaling_host="autoscaling.us-east-1.amazonaws.com"::string(),
           autoscaling_port=80::non_neg_integer(),
+          application_autoscaling_scheme="https://"::string(),
+          application_autoscaling_host="autoscaling.us-east-1.amazonaws.com"::string(),
+          application_autoscaling_port=80::non_neg_integer(),
           directconnect_scheme="https://"::string(),
           directconnect_host="directconnect.us-east-1.amazonaws.com"::string(),
           directconnect_port=80::non_neg_integer(),
@@ -101,24 +118,39 @@
           ecs_scheme="https://"::string(),
           ecs_host="ecs.us-east-1.amazonaws.com"::string(),
           ecs_port=443::non_neg_integer(),
+          efs_host="elasticfilesystem.us-east-1.amazonaws.com"::string(),
+          efs_port=443::non_neg_integer(),
+          efs_scheme="https://"::string(),
           mes_scheme="https://"::string(),
           mes_host="entitlement.marketplace.us-east-1.amazonaws.com"::string(),
           mes_port=443::non_neg_integer(),
           mms_scheme="https://"::string(),
           mms_host="metering.marketplace.us-east-1.amazonaws.com"::string(),
           mms_port=443::non_neg_integer(),
+          sm_scheme="https://"::string(),
+          sm_host="secretsmanager.us-east-1.amazonaws.com"::string(),
+          sm_port=443::non_neg_integer(),
+          ssm_scheme="https://"::string(),
+          ssm_host="ssm.us-east-1.amazonaws.com"::string(),
+          ssm_port=443::non_neg_integer(),
+          guardduty_scheme="https://"::string(),
+          guardduty_host="guardduty.us-east-1.amazonaws.com"::string(),
+          guardduty_port=443::non_neg_integer(),
           cur_scheme="https://"::string(),
           cur_host="cur.us-east-1.amazonaws.com"::string(),
           cur_port=443::non_neg_integer(),
           config_scheme="https://"::string(),
           config_host="config.us-east-1.amazonaws.com"::string(),
           config_port=443::non_neg_integer(),
+          workspaces_scheme="https://"::string(),
+          workspaces_host="workspaces.us-east-1.amazonaws.com"::string(),
+          workspaces_port=443::non_neg_integer(),
           access_key_id::string()|undefined|false,
           secret_access_key::string()|undefined|false,
           security_token=undefined::string()|undefined,
           %% epoch seconds when temporary credentials will expire
           expiration=undefined :: pos_integer()|undefined,
-          %% Network request timeout; if not specifed, the default timeout will be used:
+          %% Network request timeout; if not specified, the default timeout will be used:
           %% ddb: 1s for initial call, 10s for subsequence;
           %% s3:delete_objects_batch/{2,3}, cloudtrail: 1s;
           %% other services: 10s.
@@ -130,20 +162,30 @@
           %% Note: If the lhttpc pool does not exists it will be created one with the lhttpc
           %%  default settings [{connection_timeout,300000},{pool_size,1000}]
           lhttpc_pool=undefined::atom(),
-          %% Default to not retry failures (for backwards compatability).
+          %% Default to not retry failures (for backwards compatibility).
           %% Recommended to be set to default_retry to provide recommended retry behavior.
           %% Currently only affects S3 and service modules which use erlcloud_aws
           %% for issuing HTTP request to AWS, but intent is to change other services to use this as well.
           %% If you provide a custom function be aware of this anticipated change.
           %% See erlcloud_retry for full documentation.
           retry=fun erlcloud_retry:no_retry/1::erlcloud_retry:retry_fun(),
+
+          %% By default treat all non 2xx http error codes as errors.
+          %% But in some cases, like lambda call it useful to override such
+          %% behaviour by custom one.
+          retry_response_type=fun erlcloud_retry:only_http_errors/1::erlcloud_retry:response_type_fun(),
           %% Currently matches DynamoDB retry
           %% It's likely this is too many retries for other services
           retry_num=10::non_neg_integer(),
           assume_role = #aws_assume_role{} :: aws_assume_role(), %% If a role to be assumed is given
           %% then we will try to assume the role during the update_config
           %% region override for API gateway type requests
-          aws_region=undefined::string()|undefined
+          aws_region=undefined::string()|undefined,
+          %% http proxy support
+          http_proxy=undefined::string()|undefined,
+          hackney_client_options = #hackney_client_options{} :: hackney_client_options() %% The hackney client options
+          %% are used to specify the proxy, proxy_auth and insecure which is
+          %% used to support proxy based requests to s3.
          }).
 -type(aws_config() :: #aws_config{}).
 

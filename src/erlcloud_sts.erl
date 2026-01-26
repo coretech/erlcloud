@@ -15,6 +15,7 @@
 
 -define(API_VERSION, "2011-06-15").
 -define(UTC_TO_GREGORIAN, 62167219200).
+-define(EXTERNAL_ID_MAX_LEN, 1224).
 
 
 assume_role(AwsConfig, RoleArn, RoleSessionName, DurationSeconds) ->
@@ -22,11 +23,11 @@ assume_role(AwsConfig, RoleArn, RoleSessionName, DurationSeconds) ->
 
 
 % See http://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html
--spec assume_role(#aws_config{}, string(), string(), 900..3600, undefined | string()) -> {#aws_config{}, proplist()} | no_return().
+-spec assume_role(#aws_config{}, string(), string(), 900..43200, undefined | string()) -> {#aws_config{}, proplist()}.
 assume_role(AwsConfig, RoleArn, RoleSessionName, DurationSeconds, ExternalId)
     when length(RoleArn) >= 20,
          length(RoleSessionName) >= 2, length(RoleSessionName) =< 64,
-         DurationSeconds >= 900, DurationSeconds =< 3600 ->
+         DurationSeconds >= 900, DurationSeconds =< 43200 ->
 
     Params =
         [
@@ -37,7 +38,7 @@ assume_role(AwsConfig, RoleArn, RoleSessionName, DurationSeconds, ExternalId)
     ExternalIdPart =
         case ExternalId of
             undefined -> [];
-            _ when length(ExternalId) >= 2, length(ExternalId) =< 96 -> [{"ExternalId", ExternalId}]
+            _ when length(ExternalId) >= 2, length(ExternalId) =< ?EXTERNAL_ID_MAX_LEN -> [{"ExternalId", ExternalId}]
         end,
 
     Xml = sts_query(AwsConfig, "AssumeRole", Params ++ ExternalIdPart),
@@ -69,7 +70,7 @@ assume_role(AwsConfig, RoleArn, RoleSessionName, DurationSeconds, ExternalId)
 -type caller_identity_prop() :: {account, string()}
                               | {arn, string()}
                               | {userId, string()}.
--spec get_caller_identity(#aws_config{}) -> {ok, [caller_identity_prop()]} | no_return().
+-spec get_caller_identity(#aws_config{}) -> {ok, [caller_identity_prop()]}.
 get_caller_identity(AwsConfig) ->
     Xml = sts_query(AwsConfig, "GetCallerIdentity", []),
     Proplists = erlcloud_xml:decode(
@@ -85,7 +86,7 @@ get_federation_token(AwsConfig, DurationSeconds, Name) ->
         get_federation_token(AwsConfig, DurationSeconds, Name, undefined).
 
 % See http://docs.aws.amazon.com/STS/latest/APIReference/API_GetFederationToken.html
--spec get_federation_token(#aws_config{}, 900..129600, string(), undefined | string()) -> {#aws_config{}, proplist()} | no_return().
+-spec get_federation_token(#aws_config{}, 900..129600, string(), undefined | string()) -> {#aws_config{}, proplist()}.
 get_federation_token(AwsConfig, DurationSeconds, Name, Policy)
   when length(Name) >= 2, length(Name) =< 32,
        DurationSeconds >= 900, DurationSeconds =< 129600 ->

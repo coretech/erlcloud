@@ -899,7 +899,7 @@ update_ip_set(ChangeToken, IPSetId, Updates, Config) ->
 %% http://docs.aws.amazon.com/waf/latest/APIReference/API_UpdateRule.html
 %%%------------------------------------------------------------------------------
 -spec update_rule(ChangeToken :: string() | binary(),
-                  RuleId :: string(),
+                  RuleId :: string() | binary(),
                   Updates :: [waf_rule_update()]) ->
     waf_return_val().
 update_rule(ChangeToken, RuleId, Updates) ->
@@ -1034,7 +1034,8 @@ update_xss_match_set(ChangeToken, XssMatchSetId, Updates, Config) ->
                             waf_rule_update() |
                             waf_size_constraint_update() |
                             waf_sql_injection_match_set_update() |
-                            waf_web_acl_update()) ->
+                            waf_web_acl_update() |
+                            waf_xss_match_set_update()) ->
     proplists:proplist().
 transform_to_proplist(#waf_byte_match_set_update{action = Action, byte_match_tuple = ByteMatchTuple}) ->
     [{<<"Action">>, get_update_action(Action)},
@@ -1186,7 +1187,7 @@ waf_request_no_update(Config, Operation, Body) ->
                            request_body = Payload},
     case erlcloud_aws:request_to_return(erlcloud_retry:request(Config, Request, fun waf_result_fun/1)) of
         {ok, {_RespHeaders, <<>>}} -> {ok, []};
-        {ok, {_RespHeaders, RespBody}} -> {ok, jsx:decode(RespBody)};
+        {ok, {_RespHeaders, RespBody}} -> {ok, jsx:decode(RespBody, [{return_maps, false}])};
         {error, _} = Error-> Error
     end.
 

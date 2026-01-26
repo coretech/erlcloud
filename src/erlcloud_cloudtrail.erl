@@ -13,6 +13,7 @@
     delete_trail/1, delete_trail/2,
     describe_trails/0, describe_trails/1, describe_trails/2, describe_trails/3,
     get_trail_status/1, get_trail_status/2,
+    get_event_selectors/1, get_event_selectors/2,
     start_logging/1, start_logging/2,
     stop_logging/1, stop_logging/2,
     update_trail/4, update_trail/5, update_trail/6,
@@ -117,29 +118,38 @@ describe_trails(Trails, IncludeShadowTrails, Config) ->
         end,
     ct_request("DescribeTrails", Json, Config).
 
--spec get_trail_status([string()] ) -> ct_return().
+-spec get_trail_status(string() ) -> ct_return().
 get_trail_status(Trail) ->
     get_trail_status(Trail, default_config()).
 
--spec get_trail_status([string()], aws_config()) -> ct_return().
+-spec get_trail_status(string(), aws_config()) -> ct_return().
 get_trail_status(Trail, Config) ->
     Json = [{<<"Name">>, list_to_binary(Trail)}],
     ct_request("GetTrailStatus", Json, Config).
 
--spec start_logging([string()] ) -> ct_return().
+-spec get_event_selectors(string()) -> ct_return().
+get_event_selectors(Trail) ->
+    get_event_selectors(Trail, default_config()).
+
+-spec get_event_selectors(string(), aws_config()) -> ct_return().
+get_event_selectors(Trail, Config) ->
+    Json = [{<<"TrailName">>, list_to_binary(Trail)}],
+    ct_request("GetEventSelectors", Json, Config).
+
+-spec start_logging(string() ) -> ct_return().
 start_logging(Trail) ->
     start_logging(Trail, default_config()).
 
--spec start_logging([string()], aws_config()) -> ct_return().
+-spec start_logging(string(), aws_config()) -> ct_return().
 start_logging(Trail, Config) ->
     Json = [{<<"Name">>, list_to_binary(Trail)}],
     ct_request("StartLogging", Json, Config).
 
--spec stop_logging([string()] ) -> ct_return().
+-spec stop_logging(string() ) -> ct_return().
 stop_logging(Trail) ->
     stop_logging(Trail, default_config()).
 
--spec stop_logging([string()], aws_config()) -> ct_return().
+-spec stop_logging(string(), aws_config()) -> ct_return().
 stop_logging(Trail, Config) ->
     Json = [{<<"Name">>, list_to_binary(Trail)}],
     ct_request("StopLogging", Json, Config).
@@ -191,11 +201,11 @@ request_impl(Method, Scheme, Host, Port, Path, Operation, Params, Body, #aws_con
     case erlcloud_aws:aws_request_form_raw(
         Method, Scheme, Host, Port, Path, Body, 
         [{"content-type", "application/x-amz-json-1.1"} | Headers], 
-        Config) of
+        [], Config) of
        {ok, RespBody} ->
             case Config#aws_config.cloudtrail_raw_result of
                 true -> {ok, RespBody};
-                _ -> {ok, jsx:decode(RespBody)}
+                _ -> {ok, jsx:decode(RespBody, [{return_maps, false}])}
             end;
         {error, Reason} ->
             {error, Reason}

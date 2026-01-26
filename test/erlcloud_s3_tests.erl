@@ -40,7 +40,14 @@ operation_test_() ->
             fun put_bucket_encryption_test/1,
             fun get_bucket_encryption_test/1,
             fun get_bucket_encryption_not_found_test/1,
-            fun delete_bucket_encryption_test/1
+            fun delete_bucket_encryption_test/1,
+            fun hackney_proxy_put_validation_test/1,
+            fun get_bucket_and_key/1,
+            fun head_bucket_ok/1,
+            fun head_bucket_redirect/1,
+            fun head_bucket_bad_request/1,
+            fun head_bucket_forbidden/1,
+            fun head_bucket_not_found/1
         ]}.
 
 start() ->
@@ -62,9 +69,26 @@ httpc_expect(Response) ->
     httpc_expect(get, Response).
 
 httpc_expect(Method, Response) ->
-    fun(_Url, Method2, _Headers, _Body, _Timeout, _Config) ->
-            Method = Method2,
-            Response
+    fun(_Url, Method2, _Headers, _Body, _Timeout, _Config = #aws_config{hackney_client_options = #hackney_client_options{insecure = Insecure,
+															 proxy = Proxy,
+															 proxy_auth = Proxy_auth},
+								       http_client = Http_client}) ->
+
+            case Http_client of
+              hackney ->
+                Method = Method2,
+                Insecure = false,
+                Proxy = <<"10.10.10.10">>,
+                Proxy_auth = {<<"AAAA">>, <<"BBBB">>};
+
+              _else ->
+                Method = Method2,
+                Insecure = true,
+                Proxy = undefined,
+                Proxy_auth = undefined
+	    end,
+
+	    Response
     end.
 
 get_bucket_lifecycle_tests(_) ->
@@ -792,3 +816,146 @@ delete_bucket_encryption_test(_) ->
     meck:expect(erlcloud_httpc, request, httpc_expect(delete, Response)),
     Result = erlcloud_s3:delete_bucket_encryption("bucket", config()),
     ?_assertEqual(ok, Result).
+
+hackney_proxy_put_validation_test(_) ->
+    Response = {ok, {{200, "OK"}, [{"x-amz-version-id", "version_id"}], <<>>}},
+    Config2 = #aws_config{hackney_client_options = #hackney_client_options{insecure = false,
+			   proxy = <<"10.10.10.10">>,
+			   proxy_auth = {<<"AAAA">>, <<"BBBB">>}},
+			  http_client = hackney},
+    meck:expect(erlcloud_httpc, request, httpc_expect(put, Response)),
+    Result = erlcloud_s3:put_object("BucketName", "Key", "Data", config(Config2)),
+    ?_assertEqual([{version_id, "version_id"}
+                  ,{"x-amz-version-id", "version_id"}
+                  ], Result).
+
+get_bucket_and_key(_) ->
+    ErlcloudS3ExportExample = "https://s3.amazonaws.com/some_bucket/path_to_file",
+    Result = erlcloud_s3:get_bucket_and_key(ErlcloudS3ExportExample),
+    ?_assertEqual({"some_bucket","path_to_file"}, Result).
+
+head_bucket_ok(_) ->
+    Response = {ok, {{200, "OK"},
+        [
+            {"server","AmazonS3"},
+            {"transfer-encoding","chunked"},
+            {"content-type","application/xml"},
+            {"x-amz-access-point-alias","false"},
+            {"x-amz-bucket-region","us-west-2"},
+            {"date","Mon, 21 Apr 2025 19:45:15 GMT"},
+            {"x-amz-id-2",
+                "YIgyI9Lb9I/dMpDrRASSD8w5YsNAyhRlF+PDF0jlf9Hq6eVLvSkuj+ftZI2RmU5eXnOKW1Wqh20="},
+            {"x-amz-request-id","FAECC30C2CD53BCA"}
+        ],
+        <<>>}
+    },
+    meck:expect(erlcloud_httpc, request, httpc_expect(head, Response)),
+    Result = erlcloud_s3:head_bucket(
+        "bucket.name",
+        config()),
+    ?_assertEqual(
+        [
+            {content_length,undefined},
+            {content_type,"application/xml"},
+            {access_point_alias,"false"},
+            {bucket_region,"us-west-2"}
+        ], Result
+    ).
+
+head_bucket_redirect(_) ->
+    Response1 = {ok, {{307, "Temporary Redirect"},
+        [
+            {"server","AmazonS3"},
+            {"transfer-encoding","chunked"},
+            {"content-type","application/xml"},
+            {"location", "https://bucket.name.s3-us-west-2.amazonaws.com/"},
+            {"x-amz-bucket-region","us-west-2"},
+            {"date","Mon, 21 Apr 2025 19:45:15 GMT"},
+            {"x-amz-id-2",
+                "YIgyI9Lb9I/dMpDrRASSD8w5YsNAyhRlF+PDF0jlf9Hq6eVLvSkuj+ftZI2RmU5eXnOKW1Wqh20="},
+            {"x-amz-request-id","FAECC30C2CD53BCA"}
+        ],
+        <<>>}
+    },
+    Response2 = {ok, {{200, "OK"},
+        [
+            {"server","AmazonS3"},
+            {"transfer-encoding","chunked"},
+            {"content-type","application/xml"},
+            {"x-amz-access-point-alias","false"},
+            {"x-amz-bucket-region","us-west-2"},
+            {"date","Mon, 21 Apr 2025 19:45:15 GMT"},
+            {"x-amz-id-2",
+                "YIgyI9Lb9I/dMpDrRASSD8w5YsNAyhRlF+PDF0jlf9Hq6eVLvSkuj+ftZI2RmU5eXnOKW1Wqh20="},
+            {"x-amz-request-id","FAECC30C2CD53BCA"}
+        ],
+        <<>>}
+    },
+    meck:sequence(erlcloud_httpc, request, 6, [Response1, Response2]),
+    Result = erlcloud_s3:head_bucket(
+        "bucket.name",
+        config()),
+    ?_assertEqual(
+        [
+            {content_length,undefined},
+            {content_type,"application/xml"},
+            {access_point_alias,"false"},
+            {bucket_region,"us-west-2"}
+        ], Result
+    ).
+
+head_bucket_bad_request(_) ->
+    Response = {ok, {{400, "Bad Request"},
+        [
+            {"server","AmazonS3"},
+            {"transfer-encoding","chunked"},
+            {"content-type","application/xml"},
+            {"date","Mon, 21 Apr 2025 19:45:15 GMT"},
+            {"connection", "close"},
+            {"x-amz-id-2",
+                "YIgyI9Lb9I/dMpDrRASSD8w5YsNAyhRlF+PDF0jlf9Hq6eVLvSkuj+ftZI2RmU5eXnOKW1Wqh20="},
+            {"x-amz-request-id","FAECC30C2CD53BCA"}
+        ], <<>>}},
+    meck:expect(erlcloud_httpc, request, httpc_expect(head, Response)),
+    ?_assertException(
+        error,
+        {aws_error, {http_error, 400, "Bad Request", <<>>}},
+        erlcloud_s3:head_bucket("bucket.name", config())
+    ).
+
+head_bucket_forbidden(_) ->
+    Response = {ok, {{403, "Forbidden"},
+        [
+            {"server","AmazonS3"},
+            {"transfer-encoding","chunked"},
+            {"content-type","application/xml"},
+            {"date","Mon, 21 Apr 2025 19:45:15 GMT"},
+            {"x-amz-bucket-region","us-west-2"},
+            {"x-amz-id-2",
+                "YIgyI9Lb9I/dMpDrRASSD8w5YsNAyhRlF+PDF0jlf9Hq6eVLvSkuj+ftZI2RmU5eXnOKW1Wqh20="},
+            {"x-amz-request-id","FAECC30C2CD54BCA"}
+        ], <<>>}},
+    meck:expect(erlcloud_httpc, request, httpc_expect(head, Response)),
+    ?_assertException(
+        error,
+        {aws_error, {http_error, 403, "Forbidden", <<>>}},
+        erlcloud_s3:head_bucket("bucket.name", config())
+    ).
+
+head_bucket_not_found(_) ->
+    Response = {ok, {{404, "Not Found"},
+        [
+            {"server","AmazonS3"},
+            {"transfer-encoding","chunked"},
+            {"content-type","application/xml"},
+            {"date","Mon, 21 Apr 2025 19:45:15 GMT"},
+            {"x-amz-id-2",
+                "YIgyI9Lb9I/dMpDrRASSD8w5YsNAyhRlF+PDF0jlf9Hq6eVLvSkuj+ftZI2RmU5eXnOKW1Wqh20="},
+            {"x-amz-request-id","FAECC30C2CD54CCA"}
+        ], <<>>}},
+    meck:expect(erlcloud_httpc, request, httpc_expect(head, Response)),
+    ?_assertException(
+        error,
+        {aws_error, {http_error, 404, "Not Found", <<>>}},
+        erlcloud_s3:head_bucket("bucket.name", config())
+    ).

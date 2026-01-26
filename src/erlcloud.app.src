@@ -3,7 +3,7 @@
 
 {application, erlcloud,
  [{description, "AWS APIs library for Erlang"},
-  {vsn, git},
+  {vsn, "git"},
   {registered, []},
   {applications, [stdlib,
                   kernel,
@@ -18,9 +18,13 @@
                   %% hackney,
                   lhttpc]},
   {modules, []},
-  {env, []},
-  {licenses, ["MIT"]},
-  {links, [{"Github", "https://github.com/erlcloud/erlcloud"}]},
-  {maintainers, []}
+  {env, [
+      % Example    [{<<"kinesis">>, [<<"myAZ1.amazonaws.com">>, <<"myAZ2.amazonaws.com">>]}]
+      % or via ENV [{<<"kinesis">>, {env, "KINESIS_VPC_ENDPOINTS"}]
+      {services_vpc_endpoints, []},
+      {ec2_meta_host_port, "169.254.169.254:80"} % allows for an alternative instance metadata service
+  ]},
+  {licenses, ["BSD-2-Clause"]},
+  {links, [{"Github", "https://github.com/erlcloud/erlcloud"}]}
  ]
 }.

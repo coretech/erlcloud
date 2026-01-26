@@ -27,7 +27,7 @@
 %% @author Ransom Richardson <ransom@ransomr.net>
 %% @doc
 %%
-%% Implementation of requests to DynamoDB. This code is shared accross
+%% Implementation of requests to DynamoDB. This code is shared across
 %% all API versions.
 %% 
 %% The pluggable retry function provides a way to customize the retry behavior, as well
@@ -68,15 +68,23 @@
         ]).
 
 %% Internal impl api
--export([request/3]).
+-export([request/3,
+         request/4]).
 
 -export_type([json_return/0, attempt/0, retry_fun/0]).
 
--type json_return() :: ok | {ok, jsx:json_term()} | {error, term()}.
+-type json_return() :: ok | {ok, jsx:json_term()} | {error, term()} | {ok, #ddb2_request{}}.
 
 -type operation() :: string().
+
+
 -spec request(aws_config(), operation(), jsx:json_term()) -> json_return().
 request(Config0, Operation, Json) ->
+    request(Config0, Operation, Json, []).
+
+-spec request(aws_config(), operation(), jsx:json_term(), erlcloud_ddb2:ddb_opts()) -> json_return().
+request(Config0, Operation, Json, DdbOpts) ->
+    NoRequest = proplists:get_value(no_request, DdbOpts, false),
     Body = case Json of
                [] -> <<"{}">>;
                _ -> jsx:encode(Json)
@@ -84,7 +92,7 @@ request(Config0, Operation, Json) ->
     case erlcloud_aws:update_config(Config0) of
         {ok, Config} ->
             Headers = headers(Config, Operation, Body),
-            request_and_retry(Config, Headers, Body, {attempt, 1});
+            maybe_request_and_retry(Config, Headers, Body, Json, {attempt, 1}, NoRequest);
         {error, Reason} ->
             {error, Reason}
     end.
@@ -98,6 +106,12 @@ request(Config0, Operation, Json) ->
 %% which means it will wait up to 12.8 seconds before the last attempt.
 %% This algorithm is similar, except that it waits a random interval up to 2^(Attempt-2)*100ms. The average
 %% wait time should be the same as boto.
+
+-spec maybe_request_and_retry(aws_config(), ddb2_req_headers(), jsx:json_text(), jsx:json_term(), {attempt, non_neg_integer()}, boolean()) -> json_return().
+maybe_request_and_retry(Config, Headers, Body, _Json, Attempt, false) ->
+    request_and_retry(Config, Headers, Body, Attempt);
+maybe_request_and_retry(_Config, Headers, Body, Json, _Attempt, true) ->
+    {ok, #ddb2_request{headers = Headers, body = Body, json = Json}}.
 
 %% TODO refactor retry logic so that it can be used by all requests and move to erlcloud_aws
 
@@ -151,7 +165,7 @@ request_id_from_error(#ddb2_error{response_headers = Headers}) when is_list(Head
 request_id_from_error(#ddb2_error{}) ->
     undefined.
 
-%% For backwards compatability the default reason does not include the request id.
+%% For backwards compatibility the default reason does not include the request id.
 %% This function will update the error to have reason containing the request id.
 -spec error_reason2(#ddb2_error{}) -> #ddb2_error{}.
 error_reason2(#ddb2_error{error_type = http} = Error) ->
@@ -176,8 +190,7 @@ retry_v1_wrap(#ddb2_error{should_retry = false} = Error, _) ->
 retry_v1_wrap(Error, RetryFun) ->
     RetryFun(Error#ddb2_error.attempt, Error#ddb2_error.reason).
 
--type headers() :: [{string(), string()}].
--spec request_and_retry(aws_config(), headers(), jsx:json_text(), attempt()) ->
+-spec request_and_retry(aws_config(), ddb2_req_headers(), jsx:json_text(), attempt()) ->
                                ok | {ok, jsx:json_term()} | {error, term()}.
 request_and_retry(_, _, _, {error, Reason}) ->
     {error, Reason};
@@ -193,7 +206,7 @@ request_and_retry(Config, Headers, Body, {attempt, Attempt}) ->
 
         {ok, {{200, _}, _, RespBody}} ->
             %% TODO check crc
-            {ok, jsx:decode(RespBody)};
+            {ok, jsx:decode(RespBody, [{return_maps, false}])};
 
         Error ->
             DDBError = #ddb2_error{attempt = Attempt, 
@@ -230,7 +243,7 @@ client_error(Body, DDBError) ->
         false ->
             DDBError#ddb2_error{error_type = http, should_retry = false};
         true ->
-            Json = jsx:decode(Body),
+            Json = jsx:decode(Body, [{return_maps, false}]),
             case proplists:get_value(<<"__type">>, Json) of
                 undefined ->
                     DDBError#ddb2_error{error_type = http, should_retry = false};
@@ -240,11 +253,19 @@ client_error(Body, DDBError) ->
                         [_, Type] when
                               Type =:= <<"ProvisionedThroughputExceededException">> orelse
                               Type =:= <<"ThrottlingException">> ->
-                            DDBError#ddb2_error{error_type = ddb, 
+                            DDBError#ddb2_error{error_type = ddb,
                                                 should_retry = true,
                                                 reason = {Type, Message}};
+                        [_, Type] when
+                              Type =:= <<"TransactionCanceledException">> ->
+                            CancellationReasons0 = proplists:get_value(<<"CancellationReasons">>, Json, []),
+                            CancellationReasons = [{proplists:get_value(<<"Code">>, R),
+                                                    proplists:get_value(<<"Message">>, R, null)} || R <- CancellationReasons0],
+                            DDBError#ddb2_error{error_type = ddb,
+                                                should_retry = should_retry_canceled_transaction(CancellationReasons),
+                                                reason = {Type, {Message, CancellationReasons}}};
                         [_, Type] ->
-                            DDBError#ddb2_error{error_type = ddb, 
+                            DDBError#ddb2_error{error_type = ddb,
                                                 should_retry = false,
                                                 reason = {Type, Message}};
                         _ ->
@@ -253,7 +274,7 @@ client_error(Body, DDBError) ->
             end
     end.
 
--spec headers(aws_config(), string(), binary()) -> headers().
+-spec headers(aws_config(), string(), binary()) -> ddb2_req_headers().
 headers(Config, Operation, Body) ->
     Headers = [{"host", Config#aws_config.ddb_host},
                {"x-amz-target", Operation}],
@@ -268,3 +289,10 @@ port_spec(#aws_config{ddb_port=80}) ->
 port_spec(#aws_config{ddb_port=Port}) ->
     [":", erlang:integer_to_list(Port)].
 
+-spec should_retry_canceled_transaction(proplists:proplist()) -> boolean().
+should_retry_canceled_transaction(CancellationReasons) ->
+    %% Retry canceled transaction if cancellation reasons are either:
+    %% `None', `ThrottlingError' and/or `ProvisionedThroughputExceeded'
+    lists:filter(fun({Reason, _Message}) ->
+                     not lists:member(Reason, [<<"None">>, <<"ThrottlingError">>, <<"ProvisionedThroughputExceeded">>])
+                 end, CancellationReasons) == [].

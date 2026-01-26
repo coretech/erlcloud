@@ -4,6 +4,7 @@
 
 -include("erlcloud.hrl").
 -include("erlcloud_aws.hrl").
+-include("erlcloud_iam.hrl").
 -include_lib("xmerl/include/xmerl.hrl").
 
 %% Library initialization.
@@ -48,16 +49,24 @@
     list_entities_for_policy_all/1, list_entities_for_policy_all/2, list_entities_for_policy_all/3, list_entities_for_policy_all/4,
     get_policy/1, get_policy/2,
     get_policy_version/2, get_policy_version/3,
+    get_server_certificate/1, get_server_certificate/2,
+    list_server_certificates/0, list_server_certificates/1, list_server_certificates/2,
+    list_server_certificates_all/0, list_server_certificates_all/1, list_server_certificates_all/2,
+    list_server_certificate_tags/1, list_server_certificate_tags/2,
+    list_server_certificate_tags_all/1, list_server_certificate_tags_all/2,
     list_instance_profiles/0, list_instance_profiles/1, list_instance_profiles/2,
     list_instance_profiles_all/0, list_instance_profiles_all/1, list_instance_profiles_all/2,
     get_instance_profile/1, get_instance_profile/2,
-    get_account_authorization_details/0, get_account_authorization_details/1,
+    get_account_authorization_details/0, get_account_authorization_details/1, get_account_authorization_details/2,
     get_account_summary/0, get_account_summary/1,
     get_account_password_policy/0, get_account_password_policy/1,
     generate_credential_report/0, generate_credential_report/1,
     get_credential_report/0, get_credential_report/1,
     simulate_principal_policy/2, simulate_principal_policy/3,
-    simulate_custom_policy/2, simulate_custom_policy/3
+    simulate_custom_policy/2, simulate_custom_policy/3, simulate_custom_policy/4,
+    list_virtual_mfa_devices/0, list_virtual_mfa_devices/1, list_virtual_mfa_devices/2,
+    list_virtual_mfa_devices/3, list_virtual_mfa_devices/4,
+    list_virtual_mfa_devices_all/0, list_virtual_mfa_devices_all/1, list_virtual_mfa_devices_all/2
 ]).
 
 -export([get_uri/2]).
@@ -412,7 +421,7 @@ get_role(RoleName) when is_list(RoleName) ->
 -spec get_role(string(), aws_config()) -> {ok, proplist()} |  {error, any()}.
 get_role(RoleName, Config) ->
     get_role_impl([{"RoleName", RoleName}], Config).
-    
+
 get_role_impl(RoleNameParam, #aws_config{} = Config) ->
     ItemPath = "/GetRoleResponse/GetRoleResult/Role",
     case iam_query(Config, "GetRole", RoleNameParam, ItemPath, data_type("Role")) of
@@ -432,7 +441,7 @@ list_roles(PathPrefix) ->
 list_roles(PathPrefix, #aws_config{} = Config)
   when is_list(PathPrefix) ->
     ItemPath = "/ListRolesResponse/ListRolesResult/Roles/member",
-    iam_query(Config, "ListRoles", [{"PathPrefix", PathPrefix}], ItemPath, data_type("Role")).
+    iam_query(Config, "ListRoles", [{"PathPrefix", PathPrefix}], ItemPath, data_type("RoleList")).
 
 -spec list_roles_all() -> {ok, proplist()} |  {error, any()}.
 list_roles_all() -> list_roles([]).
@@ -446,7 +455,7 @@ list_roles_all(PathPrefix) ->
 list_roles_all(PathPrefix, #aws_config{} = Config)
   when is_list(PathPrefix) ->
     ItemPath = "/ListRolesResponse/ListRolesResult/Roles/member",
-    iam_query_all(Config, "ListRoles", [{"PathPrefix", PathPrefix}], ItemPath, data_type("Role")).
+    iam_query_all(Config, "ListRoles", [{"PathPrefix", PathPrefix}], ItemPath, data_type("RoleList")).
 
 -spec list_role_policies(string()) -> {ok, proplist()} | {ok, proplist(), string()} |  {error, any()}.
 list_role_policies(RoleName) ->
@@ -611,6 +620,107 @@ get_policy_version(PolicyArn, VersionId, #aws_config{} = Config)
     iam_query(Config, "GetPolicyVersion", [{"PolicyArn", PolicyArn}, {"VersionId", VersionId}], ItemPath, data_type("PolicyVersion")).
 
 %
+% ServerCertificate 
+%
+
+-spec get_server_certificate(string()) -> {ok, proplist()} |  {error, any()}.
+get_server_certificate(ServerCertificateName) ->
+    get_server_certificate(ServerCertificateName, default_config()).
+
+-spec get_server_certificate(string(), aws_config()) -> {ok, proplist()} |  {error, any()}.
+get_server_certificate(ServerCertificateName, #aws_config{} = Config) ->
+    Action = "GetServerCertificate",
+    Params = [{"ServerCertificateName", ServerCertificateName}],
+    case iam_query(Config, Action, Params) of
+        {ok, Doc} ->
+            ItemPath = "/GetServerCertificateResponse/GetServerCertificateResult/ServerCertificate",
+            [Item] = erlcloud_util:get_items(ItemPath, Doc),
+            Schema = [
+                {server_certificate_metadata, "ServerCertificateMetadata",
+                    {single, [
+                        {server_certificate_name, "ServerCertificateName", text},
+                        {server_certificate_id, "ServerCertificateId", text},
+                        {path, "Path", text},
+                        {arn, "Arn", text},
+                        {upload_date, "UploadDate", time},
+                        {expiration, "Expiration", time}
+                    ]}
+                },
+                {certificate_body, "CertificateBody", text},
+                {certificate_chain, "CertificateChain", optional_text}
+            ],
+            {ok, erlcloud_xml:decode(Schema, Item)};
+        {error, _} = Error ->
+            Error
+    end.
+
+-spec list_server_certificates() -> {ok, [proplist()]} | {ok, [proplist()], string()} |  {error, any()}.
+list_server_certificates() ->
+    list_server_certificates(default_config()).
+
+-spec list_server_certificates(string() | aws_config()) -> {ok, [proplist()]} | {ok, [proplist()], string()} |  {error, any()}.
+list_server_certificates(#aws_config{} = Config) ->
+    list_server_certificates("/", Config);
+list_server_certificates(PathPrefix) ->
+    list_server_certificates(PathPrefix, default_config()).
+
+-spec list_server_certificates(string(), aws_config()) -> {ok, [proplist()]} | {ok, [proplist()], string()} |  {error, any()}.
+list_server_certificates(PathPrefix, #aws_config{} = Config)
+  when is_list(PathPrefix) ->
+    Action = "ListServerCertificates",
+    Params = [{"PathPrefix", PathPrefix}],
+    ItemPath = "/ListServerCertificatesResponse/ListServerCertificatesResult/ServerCertificateMetadataList/member",
+    DataTypeDef = data_type("ServerCertificateMetadataList"),
+    iam_query(Config, Action, Params, ItemPath, DataTypeDef).
+
+-spec list_server_certificates_all() -> {ok, [proplist()]} |  {error, any()}.
+list_server_certificates_all() ->
+    list_server_certificates_all(default_config()).
+
+-spec list_server_certificates_all(string() | aws_config()) -> {ok, [proplist()]} | {error, any()}.
+list_server_certificates_all(#aws_config{} = Config) ->
+    list_server_certificates_all("/", Config);
+list_server_certificates_all(PathPrefix) ->
+    list_server_certificates_all(PathPrefix, default_config()).
+
+-spec list_server_certificates_all(string(), aws_config()) -> {ok, [proplist()]} |  {error, any()}.
+list_server_certificates_all(PathPrefix, #aws_config{} = Config)
+  when is_list(PathPrefix) ->
+    Action = "ListServerCertificates",
+    Params = [{"PathPrefix", PathPrefix}],
+    ItemPath = "/ListServerCertificatesResponse/ListServerCertificatesResult/ServerCertificateMetadataList/member",
+    DataTypeDef = data_type("ServerCertificateMetadataList"),
+    iam_query_all(Config, Action, Params, ItemPath, DataTypeDef).
+
+-spec list_server_certificate_tags(string()) -> {ok, [proplist()]} | {error, any()}.
+list_server_certificate_tags(ServerCertificateName)
+  when is_list(ServerCertificateName) ->
+    list_server_certificate_tags(ServerCertificateName, default_config()).
+
+-spec list_server_certificate_tags(string(), aws_config()) -> {ok, [proplist()]} | {error, any()}.
+list_server_certificate_tags(ServerCertificateName, #aws_config{} = Config)
+  when is_list(ServerCertificateName) ->
+    Action = "ListServerCertificateTags",
+    Params = [{"ServerCertificateName", ServerCertificateName}],
+    ItemPath = "/ListServerCertificateTagsResponse/ListServerCertificateTagsResult/Tags/member",
+    DataTypeDef = data_type("ServerCertificateTags"),
+    iam_query(Config, Action, Params, ItemPath, DataTypeDef).
+
+-spec list_server_certificate_tags_all(string()) -> {ok, [proplist()]} | {error, any()}.
+list_server_certificate_tags_all(ServerCertificateName)
+  when is_list(ServerCertificateName) ->
+    list_server_certificate_tags_all(ServerCertificateName, default_config()).
+
+-spec list_server_certificate_tags_all(string(), aws_config()) -> {ok, [proplist()]} | {error, any()}.
+list_server_certificate_tags_all(ServerCertificateName, #aws_config{} = Config)
+  when is_list(ServerCertificateName) ->
+    Action = "ListServerCertificateTags",
+    Params = [{"ServerCertificateName", ServerCertificateName}],
+    ItemPath = "/ListServerCertificateTagsResponse/ListServerCertificateTagsResult/Tags/member",
+    DataTypeDef = data_type("ServerCertificateTags"),
+    iam_query_all(Config, Action, Params, ItemPath, DataTypeDef).
+
+%
 % InstanceProfile
 %
 -spec list_instance_profiles() -> {ok, proplist()} | {ok, proplist(), string()} |  {error, any()}.
@@ -660,25 +770,33 @@ get_instance_profile(ProfileName, #aws_config{} = Config) ->
 %
 % Account APIs
 %
--spec get_account_authorization_details() -> {ok, proplist()} |  {error, any()}.
+-spec get_account_authorization_details() -> {ok, proplist()} | {ok, proplist(), string()} | {error, any()}.
 get_account_authorization_details() ->
     get_account_authorization_details(default_config()).
   
--spec get_account_authorization_details(aws_config()) -> {ok, proplist()} |  {error, any()}.
+-spec get_account_authorization_details(list() | aws_config()) -> {ok, proplist()} | {ok, proplist(), string()} | {error, any()}.
 get_account_authorization_details(#aws_config{} = Config) ->
+    get_account_authorization_details([], #aws_config{} = Config);
+get_account_authorization_details(Params) ->
+    get_account_authorization_details(Params, default_config()).
+
+-spec get_account_authorization_details(list(), aws_config()) -> {ok, proplist()} | {ok, proplist(), string()} | {error, any()}.
+get_account_authorization_details(Params, #aws_config{} = Config) when is_list(Params) ->
     ItemPath = "/GetAccountAuthorizationDetailsResponse/GetAccountAuthorizationDetailsResult",
     DataTypeDef = data_type("AccountAuthorizationDetails"),
-    case iam_query(Config, "GetAccountAuthorizationDetails", [], ItemPath, DataTypeDef) of
+    case iam_query(Config, "GetAccountAuthorizationDetails", Params, ItemPath, DataTypeDef) of
         {ok, [Summary]} ->
             {ok, Summary};
+        {ok, [Summary], Marker} ->
+            {ok, Summary, Marker};
         {error, _} = Error -> Error
     end.
 
--spec get_account_summary() -> {ok, proplist()} |  {error, any()}.
+-spec get_account_summary() -> {ok, [proplist()]} |  {error, any()}.
 get_account_summary() ->
     get_account_summary(default_config()).
 
--spec get_account_summary(aws_config()) -> {ok, proplist()} |  {error, any()}.
+-spec get_account_summary(aws_config()) -> {ok, [proplist()]} |  {error, any()}.
 get_account_summary(#aws_config{} = Config) ->
     case iam_query(Config, "GetAccountSummary", []) of
         {ok, Doc} ->
@@ -737,6 +855,7 @@ simulate_principal_policy(PolicySourceArn, ActionNames, #aws_config{} = Config)
 simulate_custom_policy(ActionNames, PolicyInputList) ->
     simulate_custom_policy(ActionNames, PolicyInputList, default_config()).
 
+-spec simulate_custom_policy(list(), list(), aws_config() | context_entries()) -> {ok, proplist()} |  {error, any()}.
 simulate_custom_policy(ActionNames, PolicyInputList, #aws_config{} = Config)
   when is_list(ActionNames), is_list(PolicyInputList) ->
     ItemPath = "/SimulateCustomPolicyResponse/SimulateCustomPolicyResult/"
@@ -744,11 +863,93 @@ simulate_custom_policy(ActionNames, PolicyInputList, #aws_config{} = Config)
     Params = erlcloud_util:encode_list("ActionNames", ActionNames) ++ 
              erlcloud_util:encode_list("PolicyInputList", PolicyInputList),
     iam_query_all(Config, "SimulateCustomPolicy", Params,
+                  ItemPath, data_type("EvaluationResult"));
+simulate_custom_policy(ActionNames, PolicyInputList, ContextEntries) ->
+    simulate_custom_policy(ActionNames, PolicyInputList, ContextEntries, default_config()).
+
+simulate_custom_policy(ActionNames, PolicyInputList, ContextEntries, #aws_config{} = Config)
+  when is_list(ActionNames), is_list(PolicyInputList) ->
+    ItemPath = "/SimulateCustomPolicyResponse/SimulateCustomPolicyResult/"
+               "EvaluationResults/member",
+
+    Params = erlcloud_util:encode_list("ActionNames", ActionNames) ++ 
+             erlcloud_util:encode_list("PolicyInputList", PolicyInputList) ++
+             encode_context_entries(ContextEntries),
+    iam_query_all(Config, "SimulateCustomPolicy", Params,
                   ItemPath, data_type("EvaluationResult")).
+
+-spec list_virtual_mfa_devices() -> {ok, [proplist()]} | {ok, [proplist()], string()} | {error, any()}.
+list_virtual_mfa_devices() ->
+    list_virtual_mfa_devices(default_config()).
+
+-spec list_virtual_mfa_devices(string() | aws_config()) -> {ok, [proplist()]} | {ok, [proplist()], string()} | {error, any()}.
+list_virtual_mfa_devices(#aws_config{} = Config) ->
+    list_virtual_mfa_devices(undefined, undefined, undefined, Config);
+list_virtual_mfa_devices(AssignmentStatus) ->
+    list_virtual_mfa_devices(AssignmentStatus, undefined, undefined, default_config()).
+
+-spec list_virtual_mfa_devices(string(), string() | aws_config()) -> {ok, [proplist()]} | {ok, [proplist()], string()} | {error, any()}.
+list_virtual_mfa_devices(AssignmentStatus, #aws_config{} = Config) ->
+    list_virtual_mfa_devices(AssignmentStatus, undefined, undefined, Config);
+list_virtual_mfa_devices(AssignmentStatus, Marker) ->
+    list_virtual_mfa_devices(AssignmentStatus, Marker, undefined, default_config()).
+
+-spec list_virtual_mfa_devices(string(), string(), string()| aws_config()) -> {ok, [proplist()]} | {ok, [proplist()], string()} | {error, any()}.
+list_virtual_mfa_devices(AssignmentStatus, Marker, #aws_config{} = Config) ->
+    list_virtual_mfa_devices(AssignmentStatus, Marker, undefined, Config);
+list_virtual_mfa_devices(AssignmentStatus, Marker, MaxItems) ->
+    list_virtual_mfa_devices(AssignmentStatus, Marker, MaxItems, default_config()).
+
+-spec list_virtual_mfa_devices(undefined | string(), undefined | string(), undefined | string(), aws_config()) -> {ok, [proplist()]} | {ok, [proplist()], string()} | {error, any()}.
+list_virtual_mfa_devices(AssignmentStatus, Marker, MaxItems, #aws_config{} = Config) ->
+    Params = make_list_virtual_mfa_devices_params(AssignmentStatus, Marker, MaxItems),
+    ItemPath = "/ListVirtualMFADevicesResponse/ListVirtualMFADevicesResult/VirtualMFADevices/member",
+    iam_query(Config, "ListVirtualMFADevices", Params, ItemPath, data_type("VirtualMFADeviceMetadata")).
+
+
+-spec list_virtual_mfa_devices_all() -> {ok, [proplist()]} | {error, any()}.
+list_virtual_mfa_devices_all() ->
+    list_virtual_mfa_devices_all(default_config()).
+
+-spec list_virtual_mfa_devices_all(string() | aws_config()) -> {ok, [proplist()]} | {error, any()}.
+list_virtual_mfa_devices_all(#aws_config{} = Config) ->
+    list_virtual_mfa_devices_all(undefined, Config);
+list_virtual_mfa_devices_all(AssignmentStatus) ->
+    list_virtual_mfa_devices_all(AssignmentStatus, default_config()).
+
+-spec list_virtual_mfa_devices_all(undefined | string(), aws_config()) -> {ok, [proplist()]} | {error, any()}.
+list_virtual_mfa_devices_all(AssignmentStatus, #aws_config{} = Config) ->
+    Params = make_list_virtual_mfa_devices_params(AssignmentStatus, undefined, undefined),
+    ItemPath = "/ListVirtualMFADevicesResponse/ListVirtualMFADevicesResult/VirtualMFADevices/member",
+    iam_query_all(Config, "ListVirtualMFADevices", Params, ItemPath, data_type("VirtualMFADeviceMetadata")).
+
 
 %
 % Utils
 %
+
+encode_context_entries(ContextEntries) ->
+    ParsedContextEntriesValues = [ [{"ContextKeyName", ContextKeyName},
+                                    {"ContextKeyType", ContextKeyType},
+                                    {"ContextKeyValues", erlcloud_util:encode_list("", ContextKeyValues)}] ||
+                                   [{context_key_name, ContextKeyName},
+                                    {context_key_type, ContextKeyType},
+                                    {context_key_values, ContextKeyValues}] <-
+                                   ContextEntries],
+    EncodedContextEntries = erlcloud_aws:param_list(ParsedContextEntriesValues, "ContextEntries.member"),
+    lists:flatten([flatten_encoded_context_value(Key, Value) || {Key, Value} <- EncodedContextEntries]).
+
+flatten_encoded_context_value(Key, Value) ->
+   flatten_encoded_context_value(Key, Value, []).
+
+flatten_encoded_context_value(_, [], Acc) ->
+    Acc;
+flatten_encoded_context_value(Key, [{SubKey, Val} | Values], Acc) ->
+    Acc2 = [{Key++SubKey, Val}] ++ Acc,
+    flatten_encoded_context_value(Key, Values, Acc2);
+flatten_encoded_context_value(Key, Val, _) ->
+    [{Key, Val}].
+
 iam_query(Config, Action, Params) ->
     iam_query(Config, Action, Params, ?API_VERSION).
 
@@ -833,6 +1034,10 @@ extract_account_summary(Item) ->
       end, [], Entries).
 
 
+data_type("VirtualMFADeviceMetadata") ->
+    [{"SerialNumber", serial_number, "String"},
+     {"EnableDate", enable_date, "DateTime"},
+     {"User", user, data_type("UserDetail")}];
 data_type("AccountAuthorizationDetails") ->
     [{"UserDetailList/member", users, data_type("UserDetail")},
      {"GroupDetailList/member", groups, data_type("GroupDetail")},
@@ -847,7 +1052,7 @@ data_type("InstanceProfile") ->
      {"Arn", arn, "String"},
      {"Path", path, "String"},
      {"InstanceProfileName", instance_profile_name, "String"},
-     {"Roles/member", roles, data_type("Role")},
+     {"Roles/member", roles, data_type("RoleList")},
      {"InstanceProfileId", instance_profile_id, "String"}];
 data_type("Group") ->
     [{"Path", path, "String"},
@@ -883,13 +1088,21 @@ data_type("PasswordPolicy") ->
 data_type("PolicyDetail") ->
     [{"PolicyName", policy_name, "String"},
      {"PolicyDocument", policy_document, "Uri"}];
-data_type("Role") ->
+data_type("RoleList") ->
     [{"Arn", arn, "String"},
      {"CreateDate", create_date, "DateTime"},
      {"AssumeRolePolicyDocument", assume_role_policy_doc, "Uri"},
      {"RoleId", role_id, "String"},
      {"RoleName", role_name, "String"},
      {"Path", path, "String"}];
+data_type("Role") ->
+    [{"Arn", arn, "String"},
+     {"CreateDate", create_date, "DateTime"},
+     {"AssumeRolePolicyDocument", assume_role_policy_doc, "Uri"},
+     {"RoleId", role_id, "String"},
+     {"RoleName", role_name, "String"},
+     {"Path", path, "String"},
+     {"RoleLastUsed", role_last_used, data_type("RoleLastUsed")}];
 data_type("RoleDetail") ->
     [{"RolePolicyList/member", role_policy_list, data_type("PolicyDetail")},
      {"RoleName", role_name, "String"},
@@ -899,6 +1112,9 @@ data_type("RoleDetail") ->
      {"CreateDate", create_date, "DateTime"},
      {"AssumeRolePolicyDocument", assume_role_policy_document, "Uri"},
      {"Arn", arn, "String"}];
+data_type("RoleLastUsed") ->
+    [{"LastUsedDate", last_used_date, "DateTime"},
+     {"Region", region, "String"}];
 data_type("RolePolicyList") ->
     [{"PolicyDocument", policy_document, "Uri"},
      {"RoleName", role_name, "String"},
@@ -955,7 +1171,17 @@ data_type("GetAccessKeyLastUsedResult") ->
     [{"UserName", user_name, "String"},
      {"AccessKeyLastUsed/Region", access_key_last_used_region, "String"},
      {"AccessKeyLastUsed/ServiceName", access_key_last_used_service_name, "String"},
-     {"AccessKeyLastUsed/LastUsedDate", access_key_last_used_date, "DateTime"}].
+     {"AccessKeyLastUsed/LastUsedDate", access_key_last_used_date, "DateTime"}];
+data_type("ServerCertificateMetadataList") ->
+    [{"Expiration", expiration, "DateTime"},
+     {"UploadDate", upload_date, "DateTime"},
+     {"Arn", arn, "String"},
+     {"Path", path, "String"},
+     {"ServerCertificateId", server_certificate_id, "String"},
+     {"ServerCertificateName", server_certificate_name, "String"}];
+data_type("ServerCertificateTags") ->
+    [{"Value", value, "String"},
+     {"Key", key, "String"}].
 
 data_fun("String") -> {erlcloud_xml, get_text};
 data_fun("DateTime") -> {erlcloud_xml, get_time};
@@ -964,4 +1190,16 @@ data_fun("Boolean") -> {erlcloud_xml, get_bool};
 data_fun("Uri") -> {?MODULE, get_uri}.
 
 get_uri(Key, Item) ->
-    http_uri:decode(erlcloud_xml:get_text(Key, Item)).
+    erlcloud_util:http_uri_decode(erlcloud_xml:get_text(Key, Item)).
+
+make_list_virtual_mfa_devices_params(undefined, undefined, undefined) ->
+    [];
+make_list_virtual_mfa_devices_params(AssignmentStatus, Marker, MaxItems) ->
+    make_list_virtual_mfa_devices_param(AssignmentStatus, "AssignmentStatus") ++ 
+    make_list_virtual_mfa_devices_param(Marker ,"Marker") ++ 
+    make_list_virtual_mfa_devices_param(MaxItems, "MaxItems").
+
+make_list_virtual_mfa_devices_param(undefined, _) ->
+    [];
+make_list_virtual_mfa_devices_param(Param, ParamString) ->
+    [{ParamString, Param}].

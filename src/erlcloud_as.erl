@@ -28,7 +28,8 @@
          detach_instances/2, detach_instances/3, detach_instances/4,
 
          describe_lifecycle_hooks/1, describe_lifecycle_hooks/2, describe_lifecycle_hooks/3,
-         complete_lifecycle_action/4, complete_lifecycle_action/5
+         complete_lifecycle_action/4, complete_lifecycle_action/5,
+         record_lifecycle_action_heartbeat/3, record_lifecycle_action_heartbeat/4
 ]).
 
 -define(API_VERSION, "2011-01-01").
@@ -77,6 +78,9 @@
 
 -define(COMPLETE_LIFECYCLE_ACTION_ACTIVITY, 
         "/CompleteLifecycleActionResponse/ResponseMetadata/RequestId").
+
+-define(RECORD_LIFECYCLE_ACTION_HEARTBEAT_ACTIVITY, 
+        "/RecordLifecycleActionHeartbeatResponse/ResponseMetadata/RequestId").
 
 
 %% --------------------------------------------------------------------
@@ -166,6 +170,7 @@ extract_group(G) ->
        min_size = erlcloud_xml:get_integer("MinSize", G),
        max_size = erlcloud_xml:get_integer("MaxSize", G),
        launch_configuration_name = get_text("LaunchConfigurationName", G),
+       launch_template = extract_launch_template_spec(xmerl_xpath:string("LaunchTemplate", G)),
        vpc_zone_id = [ erlcloud_xml:get_text(Zid) || Zid <- xmerl_xpath:string("VPCZoneIdentifier", G)],
        status = get_text("Status", G)
     }.
@@ -173,6 +178,13 @@ extract_tags_from_group(G) ->
     [{erlcloud_xml:get_text("Key", T), erlcloud_xml:get_text("Value", T)} || 
         T <- xmerl_xpath:string("Tags/member", G)].
 
+extract_launch_template_spec([]) -> undefined;
+extract_launch_template_spec([L]) ->
+    #aws_launch_template_spec{
+        id = get_text("LaunchTemplateId", L),
+        name = get_text("LaunchTemplateName", L),
+        version = get_text("Version", L)
+    }.
 %% --------------------------------------------------------------------
 %% @doc set_desired_capacity(GroupName, Capacity, false, default_config())
 %% @end
@@ -327,18 +339,16 @@ create_launch_config(#aws_launch_config{
                      },
                      Config) ->
     Params = 
-        lists:concat([
           [
            {"LaunchConfigurationName", LCName},
            {"ImageId", ImageId},
            {"InstanceType", Type}
-          ],
-          when_defined(UserData, [{"UserData", UserData}], []),
-          when_defined(PublicIP, [{"AssociatePublicIpAddress", atom_to_list(PublicIP)}], []),
-          when_defined(Monitoring, [{"InstanceMonitoring.Enabled", atom_to_list(Monitoring)}], []),
-          member_params("SecurityGroups.member.", SGroups),
-          when_defined(KeyPair, [{"KeyName", KeyPair}], [])
-    ]),
+          ]
+          ++ when_defined(UserData, [{"UserData", UserData}], [])
+          ++ when_defined(PublicIP, [{"AssociatePublicIpAddress", atom_to_list(PublicIP)}], [])
+          ++ when_defined(Monitoring, [{"InstanceMonitoring.Enabled", atom_to_list(Monitoring)}], [])
+          ++ member_params("SecurityGroups.member.", SGroups)
+          ++ when_defined(KeyPair, [{"KeyName", KeyPair}], []),
     io:format("~p ~n", [Params]),
     create_launch_config(Params, Config);
 
@@ -369,23 +379,21 @@ create_auto_scaling_group(#aws_autoscaling_group{
                           },
                           Config) ->
     ProcessedTags = lists:flatten([tag_to_member_param(T, Idx) || {T, Idx} <- lists:zip(Tags, lists:seq(1, length(Tags)))]),
-    Params = lists:concat([
-                 [
+    Params = [
                   {"AutoScalingGroupName", GName},
                   {"LaunchConfigurationName", LaunchName},
                   {"MaxSize", integer_to_list(MaxSize)},
                   {"MinSize", integer_to_list(MinSize)}
-                 ],
-                 case VpcZoneIds of
+             ]
+             ++ case VpcZoneIds of
                      undefined -> [];
                      _         ->[{"VPCZoneIdentifier", string:join(VpcZoneIds, ",")}]
-                 end,
-                 case AZones of
+                end
+             ++ case AZones of
                      undefined -> [];
                      _         -> member_params("AvailabilityZones.member.", AZones)
-                 end,
-                 ProcessedTags
-             ]),
+                end
+             ++ ProcessedTags,
     create_auto_scaling_group(Params, Config);
 
 create_auto_scaling_group(Params, Config) ->
@@ -414,35 +422,33 @@ update_auto_scaling_group(#aws_autoscaling_group{
                               availability_zones = AZones
                           },
                           Config) ->
-    Params = lists:concat([
-                 [
+    Params = [
                   {"AutoScalingGroupName", GName}
-                 ],
-                 case LaunchName of
+             ]
+             ++ case LaunchName of
                      undefined -> [];
                      _         -> [{"LaunchConfigurationName", LaunchName}]
-                 end,
-                 case DesiredCapacity of
+                end
+             ++ case DesiredCapacity of
                      undefined -> [];
                      _         -> [{"DesiredCapacity", integer_to_list(DesiredCapacity)}]
-                 end,
-                 case MaxSize of
+                end
+             ++ case MaxSize of
                      undefined -> [];
                      _         -> [{"MaxSize", integer_to_list(MaxSize)}]
-                 end,
-                 case MinSize of
+                end
+             ++ case MinSize of
                      undefined -> [];
                      _         -> [{"MinSize", integer_to_list(MinSize)}]
-                 end,
-                 case VpcZoneIds of
+                end
+             ++ case VpcZoneIds of
                      undefined -> [];
                      _         ->[{"VPCZoneIdentifier", string:join(VpcZoneIds, ",")}]
-                 end,
-                 case AZones of
+                end
+             ++ case AZones of
                      undefined -> [];
                      _         -> member_params("AvailabilityZones.member.", AZones)
-                 end
-             ]),
+                end,
     update_auto_scaling_group(Params, Config);
 
 update_auto_scaling_group(Params, Config) ->
@@ -690,6 +696,29 @@ complete_lifecycle_action(GroupName, LifecycleActionResult, LifecycleHookName, I
     case as_query(Config, "CompleteLifecycleAction", Params, ?API_VERSION) of
         {ok, Doc} ->
             RequestId = erlcloud_xml:get_text(?COMPLETE_LIFECYCLE_ACTION_ACTIVITY, Doc),            
+            {ok, RequestId};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+-spec record_lifecycle_action_heartbeat(string(), string(), {instance_id | token, string()}) -> {ok, string()} | {error, term()}.
+record_lifecycle_action_heartbeat(GroupName, LifecycleHookName, InstanceIdOrLifecycleActionToken) ->
+    record_lifecycle_action_heartbeat(GroupName, LifecycleHookName, InstanceIdOrLifecycleActionToken, erlcloud_aws:default_config()).
+
+-spec record_lifecycle_action_heartbeat(string(), string(), {instance_id | token, string()}, aws_config()) -> {ok, string()} | {error, term()}.
+record_lifecycle_action_heartbeat(GroupName, LifecycleHookName, InstanceIdOrLifecycleActionToken, Config) ->
+    InstanceIdOrLifecycleActionTokenParam = case InstanceIdOrLifecycleActionToken of
+        {instance_id,InstanceId} ->
+            {"InstanceId", InstanceId};
+        {token,LifecycleActionToken} ->
+            {"LifecycleActionToken", LifecycleActionToken}
+    end,
+    Params = [{"AutoScalingGroupName", GroupName},
+              {"LifecycleHookName", LifecycleHookName},
+              InstanceIdOrLifecycleActionTokenParam],
+    case as_query(Config, "RecordLifecycleActionHeartbeat", Params, ?API_VERSION) of
+        {ok, Doc} ->
+            RequestId = erlcloud_xml:get_text(?RECORD_LIFECYCLE_ACTION_HEARTBEAT_ACTIVITY, Doc),            
             {ok, RequestId};
         {error, Reason} ->
             {error, Reason}
