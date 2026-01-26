@@ -66,7 +66,6 @@ get_instance_metadata(ItemPath, Config, Token) ->
     Header = maybe_token_header(Token),
     erlcloud_aws:http_body(erlcloud_httpc:request(MetaDataPath, get, Header, <<>>, erlcloud_aws:get_timeout(Config), Config)).
 
-
 -spec get_instance_user_data() -> {ok, binary()} | {error, erlcloud_aws:httpc_result_error()}.
 get_instance_user_data() ->
    get_instance_user_data(erlcloud_aws:default_config()).
@@ -108,6 +107,9 @@ get_instance_dynamic_data(Config) ->
 get_instance_dynamic_data(ItemPath, Config) ->
    get_instance_dynamic_data(ItemPath, Config, undefined).
 
+%%%---------------------------------------------------------------------------
+-spec get_instance_dynamic_data( ItemPath :: string(), Config :: aws_config(), Token :: undefined | binary() ) -> {ok, binary()} | {error, erlcloud_aws:httpc_result_error()}.
+%%%---------------------------------------------------------------------------
 get_instance_dynamic_data(ItemPath, Config) ->
     DynamicDataPath = ?IMDS_BASE_URL ++ "/latest/dynamic/" ++ ItemPath,
     Headers = get_imds_headers(Config),
