@@ -56,7 +56,7 @@
 -type cloudsearch_domain_tag() :: [{TagKey :: binary(), TagValue :: string()}].
 -type cloudsearch_index_field_option() :: {
         OptionName :: binary(),
-        OptionValue :: boolean() | string() | null | integer() | float() | list()
+        OptionValue :: boolean() | string() | null | integer() | float() | list() | binary()
 }.
 -type cloudsearch_index_field() :: [cloudsearch_index_field_option()].
 
@@ -721,7 +721,7 @@ cloudsearch_query(Config, Action, Params, ApiVersion) ->
                                    [{"Accept", "application/json"}],
                                    Config) of
     {ok, Response} ->
-        {ok, jsx:decode(Response)};
+        {ok, jsx:decode(Response, [{return_maps, false}])};
     {error, Reason} ->
         {error, Reason}
     end.
@@ -734,9 +734,9 @@ cloudsearch_post_json(Host, Path, Body,
     case erlcloud_aws:aws_request_form_raw(
             post, Scheme, Host, Port, Path, Body,
             [{"content-type", "application/json"} | Headers],
-            Config) of
+            [], Config) of
        {ok, RespBody} ->
-            {ok, jsx:decode(RespBody)};
+            {ok, jsx:decode(RespBody, [{return_maps, false}])};
        {error, Reason} ->
             {error, Reason}
     end.

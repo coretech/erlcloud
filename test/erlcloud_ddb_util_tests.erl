@@ -30,6 +30,7 @@ operation_test_() ->
      [fun delete_all_tests/1,
       fun delete_hash_key_tests/1,
       fun get_all_tests/1,
+      fun list_tables_all_tests/1,
       fun put_all_tests/1,
       fun q_all_tests/1,
       fun q_all_attributes/0,
@@ -37,6 +38,7 @@ operation_test_() ->
       fun scan_all_tests/1,
       fun scan_all_attributes/0,
       fun scan_all_count/0,
+      fun wait_for_table_active_tests/1,
       fun write_all_tests/1
      ]}.
 
@@ -442,6 +444,26 @@ get_all_tests(_) ->
          ],
     multi_call_tests(Tests).
 
+list_tables_all_tests(_) ->
+    Tests =
+    [?_ddb_test(
+        {"list_tables_all return 3 tablenames",
+         ?_f(erlcloud_ddb_util:list_tables_all()),
+         [{"{}",
+           "{\"TableNames\":[\"tab1\",\"tab2\",\"tab3\"]}"}],
+         {ok, [<<"tab1">>,<<"tab2">>,<<"tab3">>]}}),
+
+     ?_ddb_test(
+         {"list_tables_all tow batches, keep order",
+          ?_f(erlcloud_ddb_util:list_tables_all()),
+          [{"{}",
+            "{\"LastEvaluatedTableName\": \"tab3\", \"TableNames\":[\"tab1\",\"tab2\",\"tab3\"]}"},
+           {"{\"ExclusiveStartTableName\":\"tab3\"}",
+            "{\"TableNames\":[\"tab5\",\"tab4\"]}"}],
+          {ok, [<<"tab1">>,<<"tab2">>,<<"tab3">>,<<"tab5">>,<<"tab4">>]}})
+    ],
+    multi_call_tests(Tests).
+
 put_all_tests(_) ->
     Tests =
         [?_ddb_test(
@@ -630,11 +652,11 @@ q_all_tests(_) ->
     multi_call_tests(Tests).
 
 q_all_attributes() ->
-    Item1 = <<"item_1">>,
-    Item2 = <<"item_2">>,
+    Item1 = [{<<"key">>, <<"item_1">>}],
+    Item2 = [{<<"key">>, <<"item_2">>}],
     meck:new(EDDB = erlcloud_ddb2),
     meck:sequence(EDDB, q, 4, [
-        {ok, #ddb2_q{last_evaluated_key = <<"key">>,
+        {ok, #ddb2_q{last_evaluated_key = {<<"key">>, <<"last1">>},
                      items              = [Item1]}},
         {ok, #ddb2_q{last_evaluated_key = undefined,
                      items              = [Item2]}}
@@ -646,7 +668,7 @@ q_all_attributes() ->
 q_all_count() ->
     meck:new(EDDB = erlcloud_ddb2),
     meck:sequence(EDDB, q, 4, [
-        {ok, #ddb2_q{last_evaluated_key = <<"key">>,
+        {ok, #ddb2_q{last_evaluated_key = {<<"key">>, <<"last1">>},
                      items              = undefined,
                      count              = 2}},
         {ok, #ddb2_q{last_evaluated_key = undefined,
@@ -777,11 +799,11 @@ scan_all_tests(_) ->
     multi_call_tests(Tests).
 
 scan_all_attributes() ->
-    Item1 = <<"item_1">>,
-    Item2 = <<"item_2">>,
+    Item1 = [{<<"key">>, <<"item_1">>}],
+    Item2 = [{<<"key">>, <<"item_2">>}],
     meck:new(EDDB = erlcloud_ddb2),
     meck:sequence(EDDB, scan, 3, [
-        {ok, #ddb2_scan{last_evaluated_key = <<"key">>,
+        {ok, #ddb2_scan{last_evaluated_key = {<<"key">>, <<"last1">>},
                         items              = [Item1]}},
         {ok, #ddb2_scan{last_evaluated_key = undefined,
                         items              = [Item2]}}
@@ -793,7 +815,7 @@ scan_all_attributes() ->
 scan_all_count() ->
     meck:new(EDDB = erlcloud_ddb2),
     meck:sequence(EDDB, scan, 3, [
-        {ok, #ddb2_scan{last_evaluated_key = <<"key">>,
+        {ok, #ddb2_scan{last_evaluated_key = {<<"key">>, <<"last1">>},
                         items              = undefined,
                         count              = 2}},
         {ok, #ddb2_scan{last_evaluated_key = undefined,
@@ -803,6 +825,582 @@ scan_all_count() ->
     ?assertEqual({ok, 3},
                  erlcloud_ddb_util:scan_all(<<"tbl">>, [])),
     meck:unload(EDDB).
+
+wait_for_table_active_tests(_) ->
+    Tests =
+    [?_ddb_test(
+        {"wait_for_table_active table is active",
+         ?_f(erlcloud_ddb_util:wait_for_table_active(<<"Thread">>)),
+         [{"{\"TableName\":\"Thread\"}",
+              "
+{
+    \"Table\": {
+        \"AttributeDefinitions\": [
+            {
+                \"AttributeName\": \"ForumName\",
+                \"AttributeType\": \"S\"
+            },
+            {
+                \"AttributeName\": \"LastPostDateTime\",
+                \"AttributeType\": \"S\"
+            },
+            {
+                \"AttributeName\": \"Subject\",
+                \"AttributeType\": \"S\"
+            }
+        ],
+        \"GlobalSecondaryIndexes\": [
+            {
+                \"IndexName\": \"SubjectIndex\",
+                \"IndexSizeBytes\": 2048,
+                \"IndexStatus\": \"CREATING\",
+                \"ItemCount\": 47,
+                \"KeySchema\": [
+                    {
+                        \"AttributeName\": \"Subject\",
+                        \"KeyType\": \"HASH\"
+                    },
+                    {
+                        \"AttributeName\": \"LastPostDateTime\",
+                        \"KeyType\": \"RANGE\"
+                    }
+                ],
+                \"Projection\": {
+                    \"NonKeyAttributes\" : [
+                        \"Author\"
+                    ],
+                    \"ProjectionType\": \"INCLUDE\"
+                },
+                \"ProvisionedThroughput\": {
+                    \"LastDecreaseDateTime\": 0,
+                    \"LastIncreaseDateTime\": 1,
+                    \"NumberOfDecreasesToday\": 2,
+                    \"ReadCapacityUnits\": 3,
+                    \"WriteCapacityUnits\": 4
+                }
+            }
+        ],
+        \"CreationDateTime\": 1.363729002358E9,
+        \"ItemCount\": 0,
+        \"KeySchema\": [
+            {
+                \"AttributeName\": \"ForumName\",
+                \"KeyType\": \"HASH\"
+            },
+            {
+                \"AttributeName\": \"Subject\",
+                \"KeyType\": \"RANGE\"
+            }
+        ],
+        \"LocalSecondaryIndexes\": [
+            {
+                \"IndexName\": \"LastPostIndex\",
+                \"IndexSizeBytes\": 0,
+                \"ItemCount\": 0,
+                \"KeySchema\": [
+                    {
+                        \"AttributeName\": \"ForumName\",
+                        \"KeyType\": \"HASH\"
+                    },
+                    {
+                        \"AttributeName\": \"LastPostDateTime\",
+                        \"KeyType\": \"RANGE\"
+                    }
+                ],
+                \"Projection\": {
+                    \"ProjectionType\": \"KEYS_ONLY\"
+                }
+            }
+        ],
+        \"ProvisionedThroughput\": {
+            \"NumberOfDecreasesToday\": 0,
+            \"ReadCapacityUnits\": 5,
+            \"WriteCapacityUnits\": 5
+        },
+        \"TableName\": \"Thread\",
+        \"TableSizeBytes\": 0,
+        \"TableStatus\": \"ACTIVE\"
+    }
+}
+         "}],
+         ok}),
+
+     ?_ddb_test(
+         {"wait_for_table_active updating to active, RetryTimes = infinity",
+          ?_f(erlcloud_ddb_util:wait_for_table_active(<<"Thread">>)),
+          [{"{\"TableName\":\"Thread\"}",
+            "
+{
+  \"Table\": {
+      \"AttributeDefinitions\": [
+          {
+              \"AttributeName\": \"ForumName\",
+              \"AttributeType\": \"S\"
+          },
+          {
+              \"AttributeName\": \"LastPostDateTime\",
+              \"AttributeType\": \"S\"
+          },
+          {
+              \"AttributeName\": \"Subject\",
+              \"AttributeType\": \"S\"
+          }
+      ],
+      \"GlobalSecondaryIndexes\": [
+          {
+              \"IndexName\": \"SubjectIndex\",
+              \"IndexSizeBytes\": 2048,
+              \"IndexStatus\": \"CREATING\",
+              \"ItemCount\": 47,
+              \"KeySchema\": [
+                  {
+                      \"AttributeName\": \"Subject\",
+                      \"KeyType\": \"HASH\"
+                  },
+                  {
+                      \"AttributeName\": \"LastPostDateTime\",
+                      \"KeyType\": \"RANGE\"
+                  }
+              ],
+              \"Projection\": {
+                  \"NonKeyAttributes\" : [
+                      \"Author\"
+                  ],
+                  \"ProjectionType\": \"INCLUDE\"
+              },
+              \"ProvisionedThroughput\": {
+                  \"LastDecreaseDateTime\": 0,
+                  \"LastIncreaseDateTime\": 1,
+                  \"NumberOfDecreasesToday\": 2,
+                  \"ReadCapacityUnits\": 3,
+                  \"WriteCapacityUnits\": 4
+              }
+          }
+      ],
+      \"CreationDateTime\": 1.363729002358E9,
+      \"ItemCount\": 0,
+      \"KeySchema\": [
+          {
+              \"AttributeName\": \"ForumName\",
+              \"KeyType\": \"HASH\"
+          },
+          {
+              \"AttributeName\": \"Subject\",
+              \"KeyType\": \"RANGE\"
+          }
+      ],
+      \"LocalSecondaryIndexes\": [
+          {
+              \"IndexName\": \"LastPostIndex\",
+              \"IndexSizeBytes\": 0,
+              \"ItemCount\": 0,
+              \"KeySchema\": [
+                  {
+                      \"AttributeName\": \"ForumName\",
+                      \"KeyType\": \"HASH\"
+                  },
+                  {
+                      \"AttributeName\": \"LastPostDateTime\",
+                      \"KeyType\": \"RANGE\"
+                  }
+              ],
+              \"Projection\": {
+                  \"ProjectionType\": \"KEYS_ONLY\"
+              }
+          }
+      ],
+      \"ProvisionedThroughput\": {
+          \"NumberOfDecreasesToday\": 0,
+          \"ReadCapacityUnits\": 5,
+          \"WriteCapacityUnits\": 5
+      },
+      \"TableName\": \"Thread\",
+      \"TableSizeBytes\": 0,
+      \"TableStatus\": \"UPDATING\"
+  }
+}
+       "},
+           {"{\"TableName\":\"Thread\"}",
+            "
+{
+  \"Table\": {
+      \"AttributeDefinitions\": [
+          {
+              \"AttributeName\": \"ForumName\",
+              \"AttributeType\": \"S\"
+          },
+          {
+              \"AttributeName\": \"LastPostDateTime\",
+              \"AttributeType\": \"S\"
+          },
+          {
+              \"AttributeName\": \"Subject\",
+              \"AttributeType\": \"S\"
+          }
+      ],
+      \"GlobalSecondaryIndexes\": [
+          {
+              \"IndexName\": \"SubjectIndex\",
+              \"IndexSizeBytes\": 2048,
+              \"IndexStatus\": \"CREATING\",
+              \"ItemCount\": 47,
+              \"KeySchema\": [
+                  {
+                      \"AttributeName\": \"Subject\",
+                      \"KeyType\": \"HASH\"
+                  },
+                  {
+                      \"AttributeName\": \"LastPostDateTime\",
+                      \"KeyType\": \"RANGE\"
+                  }
+              ],
+              \"Projection\": {
+                  \"NonKeyAttributes\" : [
+                      \"Author\"
+                  ],
+                  \"ProjectionType\": \"INCLUDE\"
+              },
+              \"ProvisionedThroughput\": {
+                  \"LastDecreaseDateTime\": 0,
+                  \"LastIncreaseDateTime\": 1,
+                  \"NumberOfDecreasesToday\": 2,
+                  \"ReadCapacityUnits\": 3,
+                  \"WriteCapacityUnits\": 4
+              }
+          }
+      ],
+      \"CreationDateTime\": 1.363729002358E9,
+      \"ItemCount\": 0,
+      \"KeySchema\": [
+          {
+              \"AttributeName\": \"ForumName\",
+              \"KeyType\": \"HASH\"
+          },
+          {
+              \"AttributeName\": \"Subject\",
+              \"KeyType\": \"RANGE\"
+          }
+      ],
+      \"LocalSecondaryIndexes\": [
+          {
+              \"IndexName\": \"LastPostIndex\",
+              \"IndexSizeBytes\": 0,
+              \"ItemCount\": 0,
+              \"KeySchema\": [
+                  {
+                      \"AttributeName\": \"ForumName\",
+                      \"KeyType\": \"HASH\"
+                  },
+                  {
+                      \"AttributeName\": \"LastPostDateTime\",
+                      \"KeyType\": \"RANGE\"
+                  }
+              ],
+              \"Projection\": {
+                  \"ProjectionType\": \"KEYS_ONLY\"
+              }
+          }
+      ],
+      \"ProvisionedThroughput\": {
+          \"NumberOfDecreasesToday\": 0,
+          \"ReadCapacityUnits\": 5,
+          \"WriteCapacityUnits\": 5
+      },
+      \"TableName\": \"Thread\",
+      \"TableSizeBytes\": 0,
+      \"TableStatus\": \"ACTIVE\"
+  }
+}
+       "}],
+          ok}),
+
+     ?_ddb_test(
+         {"wait_for_table_active table is deleting",
+          ?_f(erlcloud_ddb_util:wait_for_table_active(<<"Thread">>)),
+          [{"{\"TableName\":\"Thread\"}",
+            "
+{
+  \"Table\": {
+      \"AttributeDefinitions\": [
+          {
+              \"AttributeName\": \"ForumName\",
+              \"AttributeType\": \"S\"
+          },
+          {
+              \"AttributeName\": \"LastPostDateTime\",
+              \"AttributeType\": \"S\"
+          },
+          {
+              \"AttributeName\": \"Subject\",
+              \"AttributeType\": \"S\"
+          }
+      ],
+      \"GlobalSecondaryIndexes\": [
+          {
+              \"IndexName\": \"SubjectIndex\",
+              \"IndexSizeBytes\": 2048,
+              \"IndexStatus\": \"CREATING\",
+              \"ItemCount\": 47,
+              \"KeySchema\": [
+                  {
+                      \"AttributeName\": \"Subject\",
+                      \"KeyType\": \"HASH\"
+                  },
+                  {
+                      \"AttributeName\": \"LastPostDateTime\",
+                      \"KeyType\": \"RANGE\"
+                  }
+              ],
+              \"Projection\": {
+                  \"NonKeyAttributes\" : [
+                      \"Author\"
+                  ],
+                  \"ProjectionType\": \"INCLUDE\"
+              },
+              \"ProvisionedThroughput\": {
+                  \"LastDecreaseDateTime\": 0,
+                  \"LastIncreaseDateTime\": 1,
+                  \"NumberOfDecreasesToday\": 2,
+                  \"ReadCapacityUnits\": 3,
+                  \"WriteCapacityUnits\": 4
+              }
+          }
+      ],
+      \"CreationDateTime\": 1.363729002358E9,
+      \"ItemCount\": 0,
+      \"KeySchema\": [
+          {
+              \"AttributeName\": \"ForumName\",
+              \"KeyType\": \"HASH\"
+          },
+          {
+              \"AttributeName\": \"Subject\",
+              \"KeyType\": \"RANGE\"
+          }
+      ],
+      \"LocalSecondaryIndexes\": [
+          {
+              \"IndexName\": \"LastPostIndex\",
+              \"IndexSizeBytes\": 0,
+              \"ItemCount\": 0,
+              \"KeySchema\": [
+                  {
+                      \"AttributeName\": \"ForumName\",
+                      \"KeyType\": \"HASH\"
+                  },
+                  {
+                      \"AttributeName\": \"LastPostDateTime\",
+                      \"KeyType\": \"RANGE\"
+                  }
+              ],
+              \"Projection\": {
+                  \"ProjectionType\": \"KEYS_ONLY\"
+              }
+          }
+      ],
+      \"ProvisionedThroughput\": {
+          \"NumberOfDecreasesToday\": 0,
+          \"ReadCapacityUnits\": 5,
+          \"WriteCapacityUnits\": 5
+      },
+      \"TableName\": \"Thread\",
+      \"TableSizeBytes\": 0,
+      \"TableStatus\": \"DELETING\"
+  }
+}
+       "}],
+          {error, deleting}}),
+
+     ?_ddb_test(
+         {"wait_for_table_active retry_threshold_exceeded",
+          ?_f(erlcloud_ddb_util:wait_for_table_active(<<"Thread">>, 10, 2)),
+          [{"{\"TableName\":\"Thread\"}",
+            "
+{
+  \"Table\": {
+      \"AttributeDefinitions\": [
+          {
+              \"AttributeName\": \"ForumName\",
+              \"AttributeType\": \"S\"
+          },
+          {
+              \"AttributeName\": \"LastPostDateTime\",
+              \"AttributeType\": \"S\"
+          },
+          {
+              \"AttributeName\": \"Subject\",
+              \"AttributeType\": \"S\"
+          }
+      ],
+      \"GlobalSecondaryIndexes\": [
+          {
+              \"IndexName\": \"SubjectIndex\",
+              \"IndexSizeBytes\": 2048,
+              \"IndexStatus\": \"CREATING\",
+              \"ItemCount\": 47,
+              \"KeySchema\": [
+                  {
+                      \"AttributeName\": \"Subject\",
+                      \"KeyType\": \"HASH\"
+                  },
+                  {
+                      \"AttributeName\": \"LastPostDateTime\",
+                      \"KeyType\": \"RANGE\"
+                  }
+              ],
+              \"Projection\": {
+                  \"NonKeyAttributes\" : [
+                      \"Author\"
+                  ],
+                  \"ProjectionType\": \"INCLUDE\"
+              },
+              \"ProvisionedThroughput\": {
+                  \"LastDecreaseDateTime\": 0,
+                  \"LastIncreaseDateTime\": 1,
+                  \"NumberOfDecreasesToday\": 2,
+                  \"ReadCapacityUnits\": 3,
+                  \"WriteCapacityUnits\": 4
+              }
+          }
+      ],
+      \"CreationDateTime\": 1.363729002358E9,
+      \"ItemCount\": 0,
+      \"KeySchema\": [
+          {
+              \"AttributeName\": \"ForumName\",
+              \"KeyType\": \"HASH\"
+          },
+          {
+              \"AttributeName\": \"Subject\",
+              \"KeyType\": \"RANGE\"
+          }
+      ],
+      \"LocalSecondaryIndexes\": [
+          {
+              \"IndexName\": \"LastPostIndex\",
+              \"IndexSizeBytes\": 0,
+              \"ItemCount\": 0,
+              \"KeySchema\": [
+                  {
+                      \"AttributeName\": \"ForumName\",
+                      \"KeyType\": \"HASH\"
+                  },
+                  {
+                      \"AttributeName\": \"LastPostDateTime\",
+                      \"KeyType\": \"RANGE\"
+                  }
+              ],
+              \"Projection\": {
+                  \"ProjectionType\": \"KEYS_ONLY\"
+              }
+          }
+      ],
+      \"ProvisionedThroughput\": {
+          \"NumberOfDecreasesToday\": 0,
+          \"ReadCapacityUnits\": 5,
+          \"WriteCapacityUnits\": 5
+      },
+      \"TableName\": \"Thread\",
+      \"TableSizeBytes\": 0,
+      \"TableStatus\": \"UPDATING\"
+  }
+}
+       "},
+           {"{\"TableName\":\"Thread\"}",
+            "
+{
+  \"Table\": {
+      \"AttributeDefinitions\": [
+          {
+              \"AttributeName\": \"ForumName\",
+              \"AttributeType\": \"S\"
+          },
+          {
+              \"AttributeName\": \"LastPostDateTime\",
+              \"AttributeType\": \"S\"
+          },
+          {
+              \"AttributeName\": \"Subject\",
+              \"AttributeType\": \"S\"
+          }
+      ],
+      \"GlobalSecondaryIndexes\": [
+          {
+              \"IndexName\": \"SubjectIndex\",
+              \"IndexSizeBytes\": 2048,
+              \"IndexStatus\": \"CREATING\",
+              \"ItemCount\": 47,
+              \"KeySchema\": [
+                  {
+                      \"AttributeName\": \"Subject\",
+                      \"KeyType\": \"HASH\"
+                  },
+                  {
+                      \"AttributeName\": \"LastPostDateTime\",
+                      \"KeyType\": \"RANGE\"
+                  }
+              ],
+              \"Projection\": {
+                  \"NonKeyAttributes\" : [
+                      \"Author\"
+                  ],
+                  \"ProjectionType\": \"INCLUDE\"
+              },
+              \"ProvisionedThroughput\": {
+                  \"LastDecreaseDateTime\": 0,
+                  \"LastIncreaseDateTime\": 1,
+                  \"NumberOfDecreasesToday\": 2,
+                  \"ReadCapacityUnits\": 3,
+                  \"WriteCapacityUnits\": 4
+              }
+          }
+      ],
+      \"CreationDateTime\": 1.363729002358E9,
+      \"ItemCount\": 0,
+      \"KeySchema\": [
+          {
+              \"AttributeName\": \"ForumName\",
+              \"KeyType\": \"HASH\"
+          },
+          {
+              \"AttributeName\": \"Subject\",
+              \"KeyType\": \"RANGE\"
+          }
+      ],
+      \"LocalSecondaryIndexes\": [
+          {
+              \"IndexName\": \"LastPostIndex\",
+              \"IndexSizeBytes\": 0,
+              \"ItemCount\": 0,
+              \"KeySchema\": [
+                  {
+                      \"AttributeName\": \"ForumName\",
+                      \"KeyType\": \"HASH\"
+                  },
+                  {
+                      \"AttributeName\": \"LastPostDateTime\",
+                      \"KeyType\": \"RANGE\"
+                  }
+              ],
+              \"Projection\": {
+                  \"ProjectionType\": \"KEYS_ONLY\"
+              }
+          }
+      ],
+      \"ProvisionedThroughput\": {
+          \"NumberOfDecreasesToday\": 0,
+          \"ReadCapacityUnits\": 5,
+          \"WriteCapacityUnits\": 5
+      },
+      \"TableName\": \"Thread\",
+      \"TableSizeBytes\": 0,
+      \"TableStatus\": \"UPDATING\"
+  }
+}
+       "}],
+          {error, retry_threshold_exceeded}})
+    ],
+    multi_call_tests(Tests).
 
 %% Currently don't have tests for the parallel write (more than 25 items).
 write_all_tests(_) ->
@@ -918,8 +1516,13 @@ set_out_opt_test_() ->
                     erlcloud_ddb_util:set_out_opt([{typed_out, true}]))},
      {"set_out_opt typed_out=false sets out=record",
       ?_assertEqual([{out, record}],
-                    erlcloud_ddb_util:set_out_opt([{typed_out, false}]))},
-     {"set_out_opt preserves location of out opt",
+                    erlcloud_ddb_util:set_out_opt([{typed_out, false}]))}]
+    ++ set_out_opt_failures_test_().
+
+% these will generate dialyzer warnings, so we isolate them
+-dialyzer({nowarn_function, set_out_opt_failures_test_/0}).
+set_out_opt_failures_test_() ->
+    [{"set_out_opt preserves location of out opt",
       ?_assertEqual([{foo, bar}, {out, record}],
                     erlcloud_ddb_util:set_out_opt([{typed_out, false}, {foo, bar}, {out, record}]))},
      {"set_out_opt overrides out opt with valid value",

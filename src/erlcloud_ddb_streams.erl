@@ -65,6 +65,9 @@
          list_streams/0, list_streams/1, list_streams/2
         ]).
 
+%%% Exported DynamoDB Streams Undynamizers
+-export([undynamize_ddb_streams_record/1, undynamize_ddb_streams_record/2]).
+
 -export_type(
    [aws_region/0,
     event_id/0,
@@ -217,6 +220,9 @@ undynamize_value_untyped({<<"BS">>, Values}, _) ->
     [base64:decode(Value) || Value <- Values];
 undynamize_value_untyped({<<"L">>, List}, Opts) ->
     [undynamize_value_untyped(Value, Opts) || [Value] <- List];
+undynamize_value_untyped({<<"M">>, [{}]}, _Opts) ->
+    %% jsx returns [{}] for empty objects
+    [];
 undynamize_value_untyped({<<"M">>, Map}, Opts) ->
     [undynamize_attr_untyped(Attr, Opts) || Attr <- Map].
 
@@ -269,6 +275,8 @@ undynamize_value_typed({<<"BS">>, Values}, _) ->
     {bs, [base64:decode(Value) || Value <- Values]};
 undynamize_value_typed({<<"L">>, List}, Opts) ->
     {l, [undynamize_value_typed(Value, Opts) || [Value] <- List]};
+undynamize_value_typed({<<"M">>, [{}]}, _Opts) ->
+    {m, []};
 undynamize_value_typed({<<"M">>, Map}, Opts) ->
     {m, [undynamize_attr_typed(Attr, Opts) || Attr <- Map]}.
 
@@ -467,7 +475,8 @@ stream_description_record() ->
 -spec stream_record_record() -> record_desc().
 stream_record_record() ->
     {#ddb_streams_stream_record{},
-     [{<<"Keys">>, #ddb_streams_stream_record.keys, fun undynamize_key/2},
+     [{<<"ApproximateCreationDateTime">>, #ddb_streams_stream_record.approximate_creation_date_time, fun id/2},
+      {<<"Keys">>, #ddb_streams_stream_record.keys, fun undynamize_key/2},
       {<<"NewImage">>, #ddb_streams_stream_record.new_image, fun undynamize_item/2},
       {<<"OldImage">>, #ddb_streams_stream_record.old_image, fun undynamize_item/2},
       {<<"SequenceNumber">>, #ddb_streams_stream_record.sequence_number, fun id/2},
@@ -789,6 +798,32 @@ list_streams(Opts, Config) ->
         fun(Json, UOpts) -> undynamize_record(list_streams_record(), Json, UOpts) end,
         DdbStreamsOpts, #ddb_streams_list_streams.streams).
 
+
+%%%------------------------------------------------------------------------------
+%%% Exported Undynamizers
+%%%------------------------------------------------------------------------------
+-type undynamize_ddb_streams_record_return() :: ddb_streams_return(#ddb_streams_record{}, #ddb_streams_stream_record{}).
+
+-spec undynamize_ddb_streams_record(json_term()) -> undynamize_ddb_streams_record_return().
+undynamize_ddb_streams_record(Return) ->
+    undynamize_ddb_streams_record(Return, []).
+
+%%------------------------------------------------------------------------------
+%% @doc Undynamizes a DynamoDB streams record.
+%% This function can be used to undynamize the jsx-decoded Data field of a
+%% record retrieved from Kinesis, after enabling Kinesis Data Streaming for
+%% a DynamoDB table.
+%%
+%% Change Data Capture for Kinesis Data Streams with DynamoDB:
+%% [http://docs.aws.amazon.com/amazondynamodb/latest/developerguide/kds.html]
+%%------------------------------------------------------------------------------
+-spec undynamize_ddb_streams_record(json_term(), ddb_streams_opts()) -> undynamize_ddb_streams_record_return().
+undynamize_ddb_streams_record(Return, Opts) ->
+    out({ok, Return},
+        fun(Json, UOpts) -> undynamize_record(record_record(), Json, UOpts) end,
+        Opts, #ddb_streams_record.dynamodb).
+
+
 %%%------------------------------------------------------------------------------
 %%% Request
 %%%------------------------------------------------------------------------------
@@ -823,7 +858,7 @@ request2(Config, Operation, Json) ->
 request_to_return(#aws_request{response_type = ok,
                                response_body = Body}) ->
     %% TODO check crc
-    {ok, jsx:decode(Body)};
+    {ok, jsx:decode(Body, [{return_maps, false}])};
 request_to_return(#aws_request{response_type = error,
                                error_type = aws,
                                httpc_error_reason = undefined,
@@ -867,7 +902,7 @@ client_error(#aws_request{response_body = Body} = Request) ->
         false ->
             Request#aws_request{should_retry = false};
         true ->
-            Json = jsx:decode(Body),
+            Json = jsx:decode(Body, [{return_maps, false}]),
             case proplists:get_value(<<"__type">>, Json) of
                 undefined ->
                     Request#aws_request{should_retry = false};

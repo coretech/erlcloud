@@ -23,6 +23,7 @@
          delete_object/2, delete_object/3,
          delete_object_version/3, delete_object_version/4,
          head_object/2, head_object/3, head_object/4,
+         head_bucket/1, head_bucket/2, head_bucket/3,
          get_object/2, get_object/3, get_object/4,
          get_object_acl/2, get_object_acl/3, get_object_acl/4,
          get_object_torrent/2, get_object_torrent/3,
@@ -35,7 +36,7 @@
          upload_part/5, upload_part/7,
          complete_multipart/4, complete_multipart/6,
          abort_multipart/3, abort_multipart/6,
-         list_multipart_uploads/1, list_multipart_uploads/2,
+         list_multipart_uploads/1, list_multipart_uploads/2, list_multipart_uploads/4,
          get_object_url/2, get_object_url/3,
          get_bucket_and_key/1,
          list_bucket_inventory/1, list_bucket_inventory/2, list_bucket_inventory/3,
@@ -44,7 +45,15 @@
          delete_bucket_inventory/2, delete_bucket_inventory/3,
          put_bucket_encryption/2, put_bucket_encryption/3, put_bucket_encryption/4,
          get_bucket_encryption/1, get_bucket_encryption/2,
-         delete_bucket_encryption/1, delete_bucket_encryption/2
+         delete_bucket_encryption/1, delete_bucket_encryption/2,
+         put_object_tagging/3, put_object_tagging/4,
+         delete_object_tagging/2, delete_object_tagging/3,
+         get_object_tagging/2, get_object_tagging/3,
+         put_bucket_tagging/2, put_bucket_tagging/3,
+         delete_bucket_tagging/1, delete_bucket_tagging/2,
+         get_bucket_tagging/1, get_bucket_tagging/2,
+         get_public_access_block/1, get_public_access_block/2,
+         put_public_access_block/2, put_public_access_block/3
     ]).
 
 -ifdef(TEST).
@@ -120,6 +129,7 @@ configure(AccessKeyID, SecretAccessKey, Host, Port, Scheme) ->
 -type s3_bucket_attribute_name() :: acl
                                   | location
                                   | logging
+                                  | mfa_delete
                                   | request_payment
                                   | versioning
                                   | notification.
@@ -137,26 +147,41 @@ configure(AccessKeyID, SecretAccessKey, Host, Port, Scheme) ->
                                 | 'us-east-1'
                                 | 'us-east-2'
                                 | 'us-west-1'
+                                | 'us-west-2'
+                                | 'ca-central-1'
                                 | 'eu-west-1'
                                 | 'eu-west-2'
+                                | 'eu-west-3'
+                                | 'eu-north-1'
                                 | 'eu-central-1'
                                 | 'ap-south-1'
                                 | 'ap-southeast-1'
                                 | 'ap-southeast-2'
                                 | 'ap-northeast-1'
                                 | 'ap-northeast-2'
+                                | 'ap-northeast-3'
+                                | 'ap-east-1'
+                                | 'me-south-1'
                                 | 'sa-east-1'.
 
+-type public_access_block_attrib() :: block_public_policy
+                                    | ignore_public_acls
+                                    | block_public_policy
+                                    | restrict_public_buckets.
+
+-type public_access_block_param() :: {public_access_block_attrib(), boolean()}.
+
+-type public_access_block_configuration() :: [public_access_block_param()].
 
 -define(XMLNS_S3, "http://s3.amazonaws.com/doc/2006-03-01/").
 -define(XMLNS_SCHEMA_INSTANCE, "http://www.w3.org/2001/XMLSchema-instance").
 
--spec copy_object(string(), string(), string(), string()) -> proplist() | no_return().
+-spec copy_object(string(), string(), string(), string()) -> proplist().
 
 copy_object(DestBucketName, DestKeyName, SrcBucketName, SrcKeyName) ->
     copy_object(DestBucketName, DestKeyName, SrcBucketName, SrcKeyName, []).
 
--spec copy_object(string(), string(), string(), string(), proplist() | aws_config()) -> proplist() | no_return().
+-spec copy_object(string(), string(), string(), string(), proplist() | aws_config()) -> proplist().
 
 copy_object(DestBucketName, DestKeyName, SrcBucketName, SrcKeyName, Config)
   when is_record(Config, aws_config) ->
@@ -166,7 +191,7 @@ copy_object(DestBucketName, DestKeyName, SrcBucketName, SrcKeyName, Options) ->
     copy_object(DestBucketName, DestKeyName, SrcBucketName, SrcKeyName,
                 Options, default_config()).
 
--spec copy_object(string(), string(), string(), string(), proplist(), aws_config()) -> proplist() | no_return().
+-spec copy_object(string(), string(), string(), string(), proplist(), aws_config()) -> proplist().
 copy_object(DestBucketName, DestKeyName, SrcBucketName, SrcKeyName, Options, Config) ->
     SrcVersion = case proplists:get_value(version_id, Options) of
                      undefined -> "";
@@ -185,12 +210,12 @@ copy_object(DestBucketName, DestKeyName, SrcBucketName, SrcKeyName, Options, Con
     [{copy_source_version_id, proplists:get_value("x-amz-copy-source-version-id", Headers, "false")},
      {version_id, proplists:get_value("x-amz-version-id", Headers, "null")}].
 
--spec create_bucket(string()) -> ok | no_return().
+-spec create_bucket(string()) -> ok.
 
 create_bucket(BucketName) ->
     create_bucket(BucketName, private).
 
--spec create_bucket(string(), s3_bucket_acl() | aws_config()) -> ok | no_return().
+-spec create_bucket(string(), s3_bucket_acl() | aws_config()) -> ok.
 
 create_bucket(BucketName, Config)
   when is_record(Config, aws_config) ->
@@ -199,7 +224,7 @@ create_bucket(BucketName, Config)
 create_bucket(BucketName, ACL) ->
     create_bucket(BucketName, ACL, none).
 
--spec create_bucket(string(), s3_bucket_acl(), s3_location_constraint() | aws_config()) -> ok | no_return().
+-spec create_bucket(string(), s3_bucket_acl(), s3_location_constraint() | aws_config()) -> ok.
 
 create_bucket(BucketName, ACL, Config)
   when is_record(Config, aws_config) ->
@@ -208,7 +233,7 @@ create_bucket(BucketName, ACL, Config)
 create_bucket(BucketName, ACL, LocationConstraint) ->
     create_bucket(BucketName, ACL, LocationConstraint, default_config()).
 
--spec create_bucket(string(), s3_bucket_acl(), s3_location_constraint(), aws_config()) -> ok | no_return().
+-spec create_bucket(string(), s3_bucket_acl(), s3_location_constraint(), aws_config()) -> ok.
 
 create_bucket(BucketName, ACL, LocationConstraint, Config)
   when is_list(BucketName), is_atom(ACL), is_atom(LocationConstraint) ->
@@ -231,14 +256,20 @@ encode_location_constraint('us-east-1') -> undefined;
 encode_location_constraint('us-east-2') -> "us-east-2";
 encode_location_constraint('us-west-1') -> "us-west-1";
 encode_location_constraint('us-west-2') -> "us-west-2";
+encode_location_constraint('ca-central-1') -> "ca-central-1";
 encode_location_constraint('eu-west-1') -> "eu-west-1";
 encode_location_constraint('eu-west-2') -> "eu-west-2";
+encode_location_constraint('eu-west-3') -> "eu-west-3";
+encode_location_constraint('eu-north-1') -> "eu-north-1";
 encode_location_constraint('eu-central-1') -> "eu-central-1";
 encode_location_constraint('ap-south-1') -> "ap-south-1";
 encode_location_constraint('ap-southeast-1') -> "ap-southeast-1";
 encode_location_constraint('ap-southeast-2') -> "ap-southeast-2";
 encode_location_constraint('ap-northeast-1') -> "ap-northeast-1";
 encode_location_constraint('ap-northeast-2') -> "ap-northeast-2";
+encode_location_constraint('ap-northeast-3') -> "ap-northeast-3";
+encode_location_constraint('ap-east-1') -> "ap-east-1";
+encode_location_constraint('me-south-1') -> "me-south-1";
 encode_location_constraint('sa-east-1') -> "sa-east-1";
 encode_location_constraint(_) -> undefined.
 
@@ -250,12 +281,12 @@ encode_acl(authenticated_read)        -> "authenticated-read";
 encode_acl(bucket_owner_read)         -> "bucket-owner-read";
 encode_acl(bucket_owner_full_control) -> "bucket-owner-full-control".
 
--spec delete_bucket(string()) -> ok | no_return().
+-spec delete_bucket(string()) -> ok.
 
 delete_bucket(BucketName) ->
     delete_bucket(BucketName, default_config()).
 
--spec delete_bucket(string(), aws_config()) -> ok | no_return().
+-spec delete_bucket(string(), aws_config()) -> ok.
 
 delete_bucket(BucketName, Config)
   when is_list(BucketName) ->
@@ -279,11 +310,11 @@ check_bucket_access(BucketName, Config)
     end.
 
 
--spec delete_objects_batch(string(), list()) -> proplist() | no_return().
+-spec delete_objects_batch(string(), list()) -> proplist().
 delete_objects_batch(BucketName, KeyList) ->
     delete_objects_batch(BucketName, KeyList, default_config()).
 
--spec delete_objects_batch(string(), list(), aws_config()) -> proplist() | no_return().
+-spec delete_objects_batch(string(), list(), aws_config()) -> proplist().
 delete_objects_batch(BucketName, KeyList, Config)
     when is_list(BucketName), is_list(KeyList) ->
     Data = lists:map(fun(Item) ->
@@ -315,47 +346,63 @@ extract_delete_objects_batch_err_contents(Nodes) ->
 to_flat_format([{key,Key},{code,Code},{message,Message}]) ->
     {Key,Code,Message}.
 
-% returns paths list from AWS S3 root directory, used as input to delete_objects_batch
-% example :
-%    25> rp(erlcloud_s3:explore_dirstructure("xmppfiledev", ["sailfish/deleteme"], [])).
-%    ["sailfish/deleteme/deep/deep1/deep4/ZZZ_1.txt",
-%     "sailfish/deleteme/deep/deep1/deep4/ZZZ_0.txt",
-%     "sailfish/deleteme/deep/deep1/ZZZ_0.txt",
-%     "sailfish/deleteme/deep/ZZZ_0.txt"]
-%    ok
-%
--spec explore_dirstructure(string(), list(), list()) -> list() | no_return().
+%% returns paths list from AWS S3 root directory, used as input to
+%% delete_objects_batch
+%% example :
+%%    25> rp(erlcloud_s3:explore_dirstructure("xmppfiledev",
+%%                                            ["sailfish/deleteme"], [])).
+%%    ["sailfish/deleteme/deep/deep1/deep4/ZZZ_1.txt",
+%%     "sailfish/deleteme/deep/deep1/deep4/ZZZ_0.txt",
+%%     "sailfish/deleteme/deep/deep1/ZZZ_0.txt",
+%%     "sailfish/deleteme/deep/ZZZ_0.txt"]
+%%    ok
+%%
+-spec explore_dirstructure(string(), list(), list()) -> list().
 explore_dirstructure(Bucketname, Branches, Accum) ->
     explore_dirstructure(Bucketname, Branches, Accum, default_config()).
 
--spec explore_dirstructure(string(), list(), list(), aws_config()) -> list() | no_return().
-explore_dirstructure(_, [], Result, _Config) ->
-                                    lists:append(Result);
-explore_dirstructure(Bucketname, [Branch|Tail], Accum, Config)
+-spec explore_dirstructure(string(), list(), list(), aws_config()) ->
+                                  list().
+explore_dirstructure(Bucketname, [Branch|Tail], Accum, Config) ->
+    explore_dirstructure(Bucketname, [Branch|Tail], Accum, Config, []).
+
+
+explore_dirstructure(_, [], Result, _Config, _Marker) ->
+    lists:append(Result);
+explore_dirstructure(Bucketname, [Branch|Tail], Accum, Config, Marker)
     when is_record(Config, aws_config) ->
     ProcessContent = fun(Data)->
             Content = proplists:get_value(contents, Data),
-            lists:foldl(fun(I,Acc)-> R = proplists:get_value(key, I), [R|Acc] end, [], Content)
+            lists:foldl(fun(I,Acc)-> R = proplists:get_value(key, I),
+                                     [R|Acc] end, [], Content)
             end,
 
-    Data = list_objects(Bucketname, [{prefix, Branch}, {delimiter, "/"}], Config),
-    case proplists:get_value(common_prefixes, Data) of
-        [] -> % it has reached end of the branch
-            Files = ProcessContent(Data),
-            explore_dirstructure(Bucketname, Tail, [Files|Accum], Config);
-        Sub ->
-            Files = ProcessContent(Data),
-            List = lists:foldl(fun(I,Acc)-> R = proplists:get_value(prefix, I), [R|Acc] end, [], Sub),
-            Result = explore_dirstructure(Bucketname, List, [], Config),
-            explore_dirstructure(Bucketname, Tail, [Result, Files|Accum], Config)
-    end.
+    Data = list_objects(Bucketname, [{prefix, Branch},
+                                     {delimiter, "/"},
+                                     {marker, Marker}], Config),
+    Files = ProcessContent(Data),
+    Sub = proplists:get_value(common_prefixes, Data),
+    SubDirs = lists:foldl(fun(I,Acc)-> R = proplists:get_value(prefix, I),
+                                       [R|Acc] end, [], Sub),
+    SubFiles = explore_dirstructure(Bucketname, SubDirs, [], Config, []),
+    TruncFiles =
+        case proplists:get_value(is_truncated, Data) of
+            false ->
+                [];
+            true ->
+                NextMarker = proplists:get_value(next_marker, Data),
+                explore_dirstructure(Bucketname, [Branch], [], Config,
+                                     NextMarker)
+        end,
+    explore_dirstructure(Bucketname, Tail,
+                         [SubFiles, TruncFiles, Files|Accum], Config, []).
 
--spec delete_object(string(), string()) -> proplist() | no_return().
+-spec delete_object(string(), string()) -> proplist().
 
 delete_object(BucketName, Key) ->
     delete_object(BucketName, Key, default_config()).
 
--spec delete_object(string(), string(), aws_config()) -> proplist() | no_return().
+-spec delete_object(string(), string(), aws_config()) -> proplist().
 
 delete_object(BucketName, Key, Config)
   when is_list(BucketName), is_list(Key) ->
@@ -365,12 +412,12 @@ delete_object(BucketName, Key, Config)
     [{delete_marker, list_to_existing_atom(Marker)},
      {version_id, Id}].
 
--spec delete_object_version(string(), string(), string()) -> proplist() | no_return().
+-spec delete_object_version(string(), string(), string()) -> proplist().
 
 delete_object_version(BucketName, Key, Version) ->
     delete_object_version(BucketName, Key, Version, default_config()).
 
--spec delete_object_version(string(), string(), string(), aws_config()) -> proplist() | no_return().
+-spec delete_object_version(string(), string(), string(), aws_config()) -> proplist().
 
 delete_object_version(BucketName, Key, Version, Config)
   when is_list(BucketName),
@@ -383,12 +430,12 @@ delete_object_version(BucketName, Key, Version, Config)
     [{delete_marker, list_to_existing_atom(Marker)},
      {version_id, Id}].
 
--spec list_buckets() -> proplist() | no_return().
+-spec list_buckets() -> proplist().
 
 list_buckets() ->
     list_buckets(default_config()).
 
--spec list_buckets(aws_config()) -> proplist() | no_return().
+-spec list_buckets(aws_config()) -> proplist().
 
 list_buckets(Config) ->
     Doc = s3_xml_request(Config, get, "", "/", "", [], <<>>, []),
@@ -406,7 +453,7 @@ get_bucket_policy(BucketName) ->
 
 %
 % Example request: erlcloud_s3:get_bucket_policy("bucket1234", Config).
-% Example success repsonse: {ok, "{\"Version\":\"2012-10-17\",\"Statement\": ..........}
+% Example success response: {ok, "{\"Version\":\"2012-10-17\",\"Statement\": ..........}
 % Example error response: {error,{http_error,404,"Not Found",
 %                               "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n
 %                               <Error>
@@ -426,20 +473,20 @@ get_bucket_policy(BucketName, Config)
                 Error
         end.
 
--spec put_bucket_policy(string(), binary()) -> ok | no_return().
+-spec put_bucket_policy(string(), binary()) -> ok.
 put_bucket_policy(BucketName, Policy) ->
     put_bucket_policy(BucketName, Policy, default_config()).
 
--spec put_bucket_policy(string(), binary(), aws_config()) -> ok | no_return().
+-spec put_bucket_policy(string(), binary(), aws_config()) -> ok.
 put_bucket_policy(BucketName, Policy, Config)
   when is_list(BucketName), is_binary(Policy), is_record(Config, aws_config) ->
     s3_simple_request(Config, put, BucketName, "/", "policy", [], Policy, []).
 
--spec get_bucket_lifecycle(BucketName::string()) -> ok | {error, Reason::term()}.
+-spec get_bucket_lifecycle(BucketName::string()) -> {ok, list(proplist())} | {error, Reason::term()}.
 get_bucket_lifecycle(BucketName) ->
     get_bucket_lifecycle(BucketName, default_config()).
 
--spec get_bucket_lifecycle(BucketName::string(), Config::aws_config()) -> {ok, Policy::string()} | {error, Reason::term()}.
+-spec get_bucket_lifecycle(BucketName::string(), Config::aws_config()) -> {ok, list(proplist())} | {error, Reason::term()}.
 get_bucket_lifecycle(BucketName, Config)
     when is_record(Config, aws_config) ->
         case s3_request2(Config, get, BucketName, "/", "lifecycle", [], <<>>, []) of
@@ -449,11 +496,11 @@ get_bucket_lifecycle(BucketName, Config)
                 Error
         end.
 
--spec put_bucket_lifecycle(string(), binary()) -> ok | {error, Reason::term()} | no_return().
+-spec put_bucket_lifecycle(string(), list() | binary()) -> ok | {error, Reason::term()}.
 put_bucket_lifecycle(BucketName, Policy) ->
     put_bucket_lifecycle(BucketName, Policy, default_config()).
 
--spec put_bucket_lifecycle(string(), list() | binary(), aws_config()) -> ok | {error, Reason::term()} | no_return().
+-spec put_bucket_lifecycle(string(), list() | binary(), aws_config()) -> ok | {error, Reason::term()}.
 put_bucket_lifecycle(BucketName, Policy, Config)
   when is_list(BucketName), is_list(Policy), is_record(Config, aws_config) ->
     XmlPolicy = encode_lifecycle(Policy),
@@ -464,21 +511,21 @@ put_bucket_lifecycle(BucketName, XmlPolicy, Config)
     s3_simple_request(Config, put, BucketName, "/", "lifecycle",
                       [], XmlPolicy, [{"Content-MD5", Md5}]).
 
--spec delete_bucket_lifecycle(string()) -> ok | {error, Reason::term()} | no_return().
+-spec delete_bucket_lifecycle(string()) -> ok | {error, Reason::term()}.
 delete_bucket_lifecycle(BucketName) ->
 delete_bucket_lifecycle(BucketName, default_config()).
 
 -spec delete_bucket_lifecycle(string(), #aws_config{})
-    -> ok | {error, Reason::term()} | no_return().
+    -> ok | {error, Reason::term()}.
 delete_bucket_lifecycle(BucketName, AwsConfig) ->
     s3_simple_request(AwsConfig, delete, BucketName,
                       "/", "lifecycle", [], <<>>, []).
 
--spec list_objects(string()) -> proplist() | no_return().
+-spec list_objects(string()) -> proplist().
 
 list_objects(BucketName) ->
     list_objects(BucketName, []).
--spec list_objects(string(), proplist() | aws_config()) -> proplist() | no_return().
+-spec list_objects(string(), proplist() | aws_config()) -> proplist().
 
 list_objects(BucketName, Config)
   when is_record(Config, aws_config) ->
@@ -487,7 +534,7 @@ list_objects(BucketName, Config)
 list_objects(BucketName, Options) ->
     list_objects(BucketName, Options, default_config()).
 
--spec list_objects(string(), proplist(), aws_config()) -> proplist() | no_return().
+-spec list_objects(string(), proplist(), aws_config()) -> proplist().
 
 list_objects(BucketName, Options, Config)
   when is_list(BucketName),
@@ -495,6 +542,7 @@ list_objects(BucketName, Options, Config)
     Params = [{"delimiter", proplists:get_value(delimiter, Options)},
               {"marker", proplists:get_value(marker, Options)},
               {"max-keys", proplists:get_value(max_keys, Options)},
+              {"encoding-type", proplists:get_value(encoding_type, Options)},
               {"prefix", proplists:get_value(prefix, Options)}],
     Doc = s3_xml_request(Config, get, BucketName, "/", "", Params, <<>>, []),
     Attributes = [{name, "Name", text},
@@ -530,12 +578,12 @@ extract_user([Node]) ->
                  ],
     erlcloud_xml:decode(Attributes, Node).
 
--spec get_bucket_attribute(string(), s3_bucket_attribute_name()) -> term() | no_return().
+-spec get_bucket_attribute(string(), s3_bucket_attribute_name()) -> term().
 
 get_bucket_attribute(BucketName, AttributeName) ->
     get_bucket_attribute(BucketName, AttributeName, default_config()).
 
--spec get_bucket_attribute(string(), s3_bucket_attribute_name(), aws_config()) -> term() | no_return().
+-spec get_bucket_attribute(string(), s3_bucket_attribute_name(), aws_config()) -> term().
 
 get_bucket_attribute(BucketName, AttributeName, Config)
   when is_list(BucketName), is_atom(AttributeName) ->
@@ -543,6 +591,7 @@ get_bucket_attribute(BucketName, AttributeName, Config)
                acl             -> "acl";
                location        -> "location";
                logging         -> "logging";
+               mfa_delete      -> "versioning"; %% https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetBucketVersioning.html#API_GetBucketVersioning_ResponseElements
                request_payment -> "requestPayment";
                versioning      -> "versioning";
                notification    -> "notification"
@@ -571,6 +620,11 @@ get_bucket_attribute(BucketName, AttributeName, Config)
                                   {target_prefix, "TargetPrefix", text},
                                   {target_trants, "TargetGrants/Grant", fun extract_acl/1}],
                     [{enabled, true}|erlcloud_xml:decode(Attributes, LoggingEnabled)]
+            end;
+        mfa_delete ->
+            case erlcloud_xml:get_text("/VersioningConfiguration/MfaDelete", Doc) of
+                "Enabled"   -> enabled;
+                _           -> disabled
             end;
         request_payment ->
             case erlcloud_xml:get_text("/RequestPaymentConfiguration/Payer", Doc) of
@@ -744,12 +798,12 @@ decode_permission("WRITE_ACP")    -> write_acp;
 decode_permission("READ")         -> read;
 decode_permission("READ_ACP")     -> read_acp.
 
--spec head_object(string(), string()) -> proplist() | no_return().
+-spec head_object(string(), string()) -> proplist().
 
 head_object(BucketName, Key) ->
     head_object(BucketName, Key, []).
 
--spec head_object(string(), string(), proplist() | aws_config()) -> proplist() | no_return().
+-spec head_object(string(), string(), proplist() | aws_config()) -> proplist().
 
 head_object(BucketName, Key, Config)
   when is_record(Config, aws_config) ->
@@ -757,17 +811,35 @@ head_object(BucketName, Key, Config)
 head_object(BucketName, Key, Options) ->
     head_object(BucketName, Key, Options, default_config()).
 
--spec head_object(string(), string(), proplist(), aws_config()) -> proplist() | no_return().
+-spec head_object(string(), string(), proplist(), aws_config()) -> proplist().
 
 head_object(BucketName, Key, Options, Config) ->
     get_or_head(head, BucketName, Key, Options, Config).
 
--spec get_object(string(), string()) -> proplist() | no_return().
+-spec head_bucket(string()) -> proplist().
+
+head_bucket(BucketName) ->
+    head_bucket(BucketName, []).
+
+-spec head_bucket(string(), proplist() | aws_config()) -> proplist().
+
+head_bucket(BucketName, Config)
+  when is_record(Config, aws_config) ->
+    head_bucket(BucketName, [], Config);
+head_bucket(BucketName, Options) ->
+    head_bucket(BucketName, Options, default_config()).
+
+-spec head_bucket(string(), proplist(), aws_config()) -> proplist().
+
+head_bucket(BucketName, Options, Config) ->
+    get_or_head(head, BucketName, Options, Config).
+
+-spec get_object(string(), string()) -> proplist().
 
 get_object(BucketName, Key) ->
     get_object(BucketName, Key, []).
 
--spec get_object(string(), string(), proplist() | aws_config()) -> proplist() | no_return().
+-spec get_object(string(), string(), proplist() | aws_config()) -> proplist().
 
 get_object(BucketName, Key, Config)
   when is_record(Config, aws_config) ->
@@ -776,10 +848,30 @@ get_object(BucketName, Key, Config)
 get_object(BucketName, Key, Options) ->
     get_object(BucketName, Key, Options, default_config()).
 
--spec get_object(string(), string(), proplist(), aws_config()) -> proplist() | no_return().
+-spec get_object(string(), string(), proplist(), aws_config()) -> proplist().
 
 get_object(BucketName, Key, Options, Config) ->
     get_or_head(get, BucketName, Key, Options, Config).
+
+get_or_head(Method, BucketName, Options, Config) ->
+    RequestHeaders = [{"Range", proplists:get_value(range, Options)},
+                      {"If-Modified-Since", proplists:get_value(if_modified_since, Options)},
+                      {"If-Unmodified-Since", proplists:get_value(if_unmodified_since, Options)},
+                      {"If-Match", proplists:get_value(if_match, Options)},
+                      {"If-None-Match", proplists:get_value(if_none_match, Options)},
+                      {"x-amz-server-side-encryption-customer-algorithm", proplists:get_value(server_side_encryption_customer_algorithm, Options)},
+                      {"x-amz-server-side-encryption-customer-key", proplists:get_value(server_side_encryption_customer_key, Options)},
+                      {"x-amz-server-side-encryption-customer-key-md5", proplists:get_value(server_side_encryption_customer_key_md5, Options)}],
+    Subresource = case proplists:get_value(version_id, Options) of
+                      undefined -> "";
+                      Version   -> ["versionId=", Version]
+                  end,
+    {Headers, _Body} = s3_request(Config, Method, BucketName, [$/], Subresource, [], <<>>, RequestHeaders),
+    [{content_length, proplists:get_value("content-length", Headers)},
+     {content_type, proplists:get_value("content-type", Headers)},
+     {access_point_alias, proplists:get_value("x-amz-access-point-alias", Headers)},
+     {bucket_region, proplists:get_value("x-amz-bucket-region", Headers)}|
+     extract_metadata(Headers)].
 
 get_or_head(Method, BucketName, Key, Options, Config) ->
     RequestHeaders = [{"Range", proplists:get_value(range, Options)},
@@ -802,15 +894,16 @@ get_or_head(Method, BucketName, Key, Options, Config) ->
      {content_encoding, proplists:get_value("content-encoding", Headers)},
      {delete_marker, list_to_existing_atom(proplists:get_value("x-amz-delete-marker", Headers, "false"))},
      {version_id, proplists:get_value("x-amz-version-id", Headers, "null")},
+     {tag_count, proplists:get_value("x-amz-tagging-count", Headers, "null")},
      {content, Body}|
      extract_metadata(Headers)].
 
--spec get_object_acl(string(), string()) -> proplist() | no_return().
+-spec get_object_acl(string(), string()) -> proplist().
 
 get_object_acl(BucketName, Key) ->
     get_object_acl(BucketName, Key, default_config()).
 
--spec get_object_acl(string(), string(), proplist() | aws_config()) -> proplist() | no_return().
+-spec get_object_acl(string(), string(), proplist() | aws_config()) -> proplist().
 
 get_object_acl(BucketName, Key, Config)
   when is_record(Config, aws_config) ->
@@ -819,7 +912,7 @@ get_object_acl(BucketName, Key, Config)
 get_object_acl(BucketName, Key, Options) ->
     get_object_acl(BucketName, Key, Options, default_config()).
 
--spec get_object_acl(string(), string(), proplist(), aws_config()) -> proplist() | no_return().
+-spec get_object_acl(string(), string(), proplist(), aws_config()) -> proplist().
 
 get_object_acl(BucketName, Key, Options, Config)
   when is_list(BucketName), is_list(Key), is_list(Options) ->
@@ -832,12 +925,12 @@ get_object_acl(BucketName, Key, Options, Config)
                   {access_control_list, "AccessControlList/Grant", fun extract_acl/1}],
     erlcloud_xml:decode(Attributes, Doc).
 
--spec get_object_metadata(string(), string()) -> proplist() | no_return().
+-spec get_object_metadata(string(), string()) -> proplist().
 
 get_object_metadata(BucketName, Key) ->
     get_object_metadata(BucketName, Key, []).
 
--spec get_object_metadata(string(), string(), proplist() | aws_config()) -> proplist() | no_return().
+-spec get_object_metadata(string(), string(), proplist() | aws_config()) -> proplist().
 
 get_object_metadata(BucketName, Key, Config)
   when is_record(Config, aws_config) ->
@@ -846,7 +939,7 @@ get_object_metadata(BucketName, Key, Config)
 get_object_metadata(BucketName, Key, Options) ->
     get_object_metadata(BucketName, Key, Options, default_config()).
 
--spec get_object_metadata(string(), string(), proplist(), proplist() | aws_config()) -> proplist() | no_return().
+-spec get_object_metadata(string(), string(), proplist(), proplist() | aws_config()) -> proplist().
 
 get_object_metadata(BucketName, Key, Options, Config) ->
     RequestHeaders = [{"If-Modified-Since", proplists:get_value(if_modified_since, Options)},
@@ -877,12 +970,12 @@ decode_replication_status("COMPLETED") -> completed;
 decode_replication_status("FAILED") -> failed;
 decode_replication_status("REPLICA") -> replica.
 
--spec get_object_torrent(string(), string()) -> proplist() | no_return().
+-spec get_object_torrent(string(), string()) -> proplist().
 
 get_object_torrent(BucketName, Key) ->
     get_object_torrent(BucketName, Key, default_config()).
 
--spec get_object_torrent(string(), string(), aws_config()) -> proplist() | no_return().
+-spec get_object_torrent(string(), string(), aws_config()) -> proplist().
 
 get_object_torrent(BucketName, Key, Config) ->
     {Headers, Body} = s3_request(Config, get, BucketName, [$/|Key], "torrent", [], <<>>, []),
@@ -890,12 +983,12 @@ get_object_torrent(BucketName, Key, Config) ->
      {version_id, proplists:get_value("x-amz-version-id", Headers, "null")},
      {torrent, Body}].
 
--spec list_object_versions(string()) -> proplist() | no_return().
+-spec list_object_versions(string()) -> proplist().
 
 list_object_versions(BucketName) ->
     list_object_versions(BucketName, []).
 
--spec list_object_versions(string(), proplist() | aws_config()) -> proplist() | no_return().
+-spec list_object_versions(string(), proplist() | aws_config()) -> proplist().
 
 list_object_versions(BucketName, Config)
   when is_record(Config, aws_config) ->
@@ -904,7 +997,7 @@ list_object_versions(BucketName, Config)
 list_object_versions(BucketName, Options) ->
     list_object_versions(BucketName, Options, default_config()).
 
--spec list_object_versions(string(), proplist(), aws_config()) -> proplist() | no_return().
+-spec list_object_versions(string(), proplist(), aws_config()) -> proplist().
 
 list_object_versions(BucketName, Options, Config)
   when is_list(BucketName), is_list(Options) ->
@@ -955,12 +1048,12 @@ extract_bucket(Node) ->
                          {creation_date, "CreationDate", time}],
                         Node).
 
--spec put_object(string(), string(), iodata()) -> proplist() | no_return().
+-spec put_object(string(), string(), iodata()) -> proplist().
 
 put_object(BucketName, Key, Value) ->
     put_object(BucketName, Key, Value, []).
 
--spec put_object(string(), string(), iodata(), proplist() | aws_config()) -> proplist() | no_return().
+-spec put_object(string(), string(), iodata(), proplist() | aws_config()) -> proplist().
 
 put_object(BucketName, Key, Value, Config)
   when is_record(Config, aws_config) ->
@@ -969,7 +1062,7 @@ put_object(BucketName, Key, Value, Config)
 put_object(BucketName, Key, Value, Options) ->
     put_object(BucketName, Key, Value, Options, default_config()).
 
--spec put_object(string(), string(), iodata(), proplist(), [{string(), string()}] | aws_config()) -> proplist() | no_return().
+-spec put_object(string(), string(), iodata(), proplist(), [{string(), string()}] | aws_config()) -> proplist().
 
 put_object(BucketName, Key, Value, Options, Config)
   when is_record(Config, aws_config) ->
@@ -978,25 +1071,27 @@ put_object(BucketName, Key, Value, Options, Config)
 put_object(BucketName, Key, Value, Options, HTTPHeaders) ->
     put_object(BucketName, Key, Value, Options, HTTPHeaders, default_config()).
 
--spec put_object(string(), string(), iodata(), proplist(), [{string(), string()}], aws_config()) -> proplist() | no_return().
+-spec put_object(string(), string(), iodata(), proplist(), [{string(), string()}], aws_config()) -> proplist().
 
 put_object(BucketName, Key, Value, Options, HTTPHeaders, Config)
   when is_list(BucketName), is_list(Key), is_list(Value) orelse is_binary(Value),
        is_list(Options) ->
     RequestHeaders = [{"x-amz-acl", encode_acl(proplists:get_value(acl, Options))}|HTTPHeaders]
         ++ [{"x-amz-meta-" ++ string:to_lower(MKey), MValue} ||
-               {MKey, MValue} <- proplists:get_value(meta, Options, [])],
+               {MKey, MValue} <- proplists:get_value(meta, Options, [])]
+        ++ [{"x-amz-tagging-" ++ MKey, MValue} ||
+               {MKey, MValue} <- proplists:get_value(tags, Options, [])],
     POSTData = iolist_to_binary(Value),
     {Headers, _Body} = s3_request(Config, put, BucketName, [$/|Key], "", [],
                                   POSTData, RequestHeaders),
     [{version_id, proplists:get_value("x-amz-version-id", Headers, "null")} | Headers].
 
--spec set_object_acl(string(), string(), proplist()) -> ok | no_return().
+-spec set_object_acl(string(), string(), proplist()) -> ok.
 
 set_object_acl(BucketName, Key, ACL) ->
     set_object_acl(BucketName, Key, ACL, default_config()).
 
--spec set_object_acl(string(), string(), proplist(), aws_config()) -> ok | no_return().
+-spec set_object_acl(string(), string(), proplist(), aws_config()) -> ok.
 
 set_object_acl(BucketName, Key, ACL, Config)
   when is_list(BucketName), is_list(Key), is_list(ACL) ->
@@ -1020,7 +1115,7 @@ sign_get(Expire_time, BucketName, Key, Config)
         SecurityToken -> "x-amz-security-token:" ++ SecurityToken ++ "\n"
     end,
     To_sign = lists:flatten(["GET\n\n\n", Expires, "\n", SecurityTokenToSign, "/", BucketName, "/", Key]),
-    Sig = base64:encode(erlcloud_util:sha_mac(Config#aws_config.secret_access_key, To_sign)),
+    Sig = base64:encode(erlcloud_util:sha256_mac(Config#aws_config.secret_access_key, To_sign)),
     {Sig, Expires}.
 
 -spec make_link(integer(), string(), string()) -> {integer(), string(), string()}.
@@ -1086,7 +1181,9 @@ start_multipart(BucketName, Key, Options, HTTPHeaders, Config)
 
     RequestHeaders = [{"x-amz-acl", encode_acl(proplists:get_value(acl, Options))}|HTTPHeaders]
         ++ [{"x-amz-meta-" ++ string:to_lower(MKey), MValue} ||
-               {MKey, MValue} <- proplists:get_value(meta, Options, [])],
+               {MKey, MValue} <- proplists:get_value(meta, Options, [])]
+        ++ [{"x-amz-tagging-" ++ MKey, MValue} ||
+               {MKey, MValue} <- proplists:get_value(tags, Options, [])],
     POSTData = <<>>,
     case s3_xml_request2(Config, post, BucketName, [$/|Key], "uploads", [],
                          POSTData, RequestHeaders) of
@@ -1196,13 +1293,12 @@ list_multipart_uploads(BucketName, Options, HTTPHeaders, Config)
             Error
     end.
 
-
--spec set_bucket_attribute(string(), atom(), term()) -> ok | no_return().
+-spec set_bucket_attribute(string(), atom(), term()) -> ok.
 
 set_bucket_attribute(BucketName, AttributeName, Value) ->
     set_bucket_attribute(BucketName, AttributeName, Value, default_config()).
 
--spec set_bucket_attribute(string(), atom(), term(), aws_config()) -> ok | no_return().
+-spec set_bucket_attribute(string(), atom(), term(), aws_config()) -> ok.
 
 set_bucket_attribute(BucketName, AttributeName, Value, Config)
   when is_list(BucketName) ->
@@ -1242,7 +1338,8 @@ set_bucket_attribute(BucketName, AttributeName, Value, Config)
                          ]
                         },
                 {"requestPayment", RPXML};
-            versioning ->
+            Versioning when Versioning =:= versioning;
+                            Versioning =:= mfa_delete ->
                 Status = case proplists:get_value(status, Value) of
                              suspended -> "Suspended";
                              enabled -> "Enabled"
@@ -1261,6 +1358,83 @@ set_bucket_attribute(BucketName, AttributeName, Value, Config)
     POSTData = list_to_binary(xmerl:export_simple([XML], xmerl_xml)),
     Headers = [{"content-type", "application/xml"}],
     s3_simple_request(Config, put, BucketName, "/", Subresource, [], POSTData, Headers).
+
+-spec put_object_tagging(string(), string(), list({string(), string()})) -> ok.
+put_object_tagging(BucketName, Key, TagList) when is_list(BucketName) ->
+    put_object_tagging(BucketName, Key, TagList, default_config()).
+
+-spec put_object_tagging(string(), string(), list({string(), string()}), aws_config()) -> ok.
+put_object_tagging(BucketName, Key, TagList, #aws_config{} = Config) when is_list(BucketName) ->
+    TaggingXML = {'Tagging',
+      [{'TagSet', encode_tags(TagList)}]},
+    POSTData = unicode:characters_to_binary(xmerl:export_simple([TaggingXML], xmerl_xml)),
+    Md5 = base64:encode(crypto:hash(md5, POSTData)),
+    Headers = [{"content-md5", Md5}, {"content-type", "application/xml"}],
+    s3_simple_request(Config, put, BucketName, [$/|Key], "tagging", [], POSTData, Headers).
+
+-spec delete_object_tagging(string(), string()) -> ok.
+delete_object_tagging(BucketName, Key) when is_list(BucketName) ->
+    delete_object_tagging(BucketName, Key, default_config()).
+
+-spec delete_object_tagging(string(), string(), aws_config()) -> ok.
+delete_object_tagging(BucketName, Key, #aws_config{} = Config) when is_list(BucketName) ->
+    s3_simple_request(Config, delete, BucketName, [$/|Key], "tagging", [], <<>>, []).
+
+-spec get_object_tagging(string(), string()) -> {ok, list({string(), string()})}.
+get_object_tagging(BucketName, Key) when is_list(BucketName) ->
+    get_object_tagging(BucketName, Key, default_config()).
+
+-spec get_object_tagging(string(), string(), aws_config()) -> {ok, list({string(), string()})}.
+get_object_tagging(BucketName, Key, #aws_config{} = Config) when is_list(BucketName) ->
+    Doc = s3_xml_request(Config, get, BucketName, [$/|Key], "tagging", [], <<>>, []),
+    {ok,
+     [extract_tag(Node) || Node <- xmerl_xpath:string("/Tagging/TagSet/Tag", Doc)]}.
+
+-spec put_bucket_tagging(string(), list({string(), string()})) -> ok.
+put_bucket_tagging(BucketName, TagList) when is_list(BucketName) ->
+    put_bucket_tagging(BucketName, TagList, default_config()).
+
+-spec put_bucket_tagging(string(), list({string(), string()}), aws_config()) -> ok.
+put_bucket_tagging(BucketName, TagList, #aws_config{} = Config) when is_list(BucketName) ->
+    TaggingXML = {'Tagging',
+		  [{'TagSet', encode_tags(TagList)}]},
+    POSTData = list_to_binary(xmerl:export_simple([TaggingXML], xmerl_xml)),
+    Md5 = base64:encode(crypto:hash(md5, POSTData)),
+    Headers = [{"content-md5", Md5}, {"content-type", "application/xml"}],
+    s3_simple_request(Config, put, BucketName, "/", "tagging", [], POSTData, Headers).
+
+-spec delete_bucket_tagging(string()) -> ok.
+delete_bucket_tagging(BucketName) when is_list(BucketName) ->
+    delete_bucket_tagging(BucketName, default_config()).
+
+-spec delete_bucket_tagging(string(), aws_config()) -> ok.
+delete_bucket_tagging(BucketName, #aws_config{} = Config) when is_list(BucketName) ->
+    s3_simple_request(Config, delete, BucketName, "/", "tagging", [], <<>>, []).
+
+-spec get_bucket_tagging(string()) -> {ok, list({string(), string()})}.
+get_bucket_tagging(BucketName) when is_list(BucketName) ->
+    get_bucket_tagging(BucketName, default_config()).
+
+-spec get_bucket_tagging(string(), aws_config()) -> {ok, list({string(), string()})}.
+get_bucket_tagging(BucketName, #aws_config{} = Config) when is_list(BucketName) ->
+    Doc = s3_xml_request(Config, get, BucketName, "/", "tagging", [], <<>>, []),
+    {ok,
+     [extract_tag(Node) || Node <- xmerl_xpath:string("/Tagging/TagSet/Tag", Doc)]}.
+
+extract_tag(Node) ->
+    List = erlcloud_xml:decode([{key, "Key", text}, {value, "Value", text}], Node),
+    {proplists:get_value(key, List), proplists:get_value(value, List)}.
+
+encode_tags(Taglist) ->
+    lists:map(fun encode_one_tag/1, Taglist).
+
+encode_one_tag({Key, Value}) ->
+    {'Tag',
+     [
+      {'Key', [Key]},
+      {'Value', [Value]}
+     ]
+    }.
 
 -spec list_bucket_inventory(string()) ->
     {ok, Result:: list(term())} | {error, Reason::term()}.
@@ -1395,14 +1569,14 @@ get_bucket_inventory(BucketName, InventoryId, #aws_config{} = Config)
             Error
     end.
 
--spec put_bucket_inventory(string(), list()) -> ok | {error, Reason::term()} | no_return().
+-spec put_bucket_inventory(string(), list()) -> ok | {error, Reason::term()}.
 put_bucket_inventory(BucketName, Inventory)
     when is_list(BucketName), is_list(Inventory) ->
 
     put_bucket_inventory(BucketName, Inventory, default_config()).
 
 -spec put_bucket_inventory(string(), list(), aws_config())
-        -> ok | {error, Reason::term()} | no_return().
+        -> ok | {error, Reason::term()}.
 put_bucket_inventory(BucketName, Inventory, #aws_config{} = Config)
     when is_list(BucketName), is_list(Inventory) ->
 
@@ -1411,7 +1585,7 @@ put_bucket_inventory(BucketName, Inventory, #aws_config{} = Config)
     put_bucket_inventory(BucketName, InventoryId, list_to_binary(XmlInventory), Config).
 
 -spec put_bucket_inventory(string(), string(), binary(), aws_config())
-        -> ok | {error, Reason::term()} | no_return().
+        -> ok | {error, Reason::term()}.
 put_bucket_inventory(BucketName, InventoryId, XmlInventory, #aws_config{} = Config)
     when is_list(BucketName), is_list(InventoryId), is_binary(XmlInventory) ->
     Md5 = base64:encode(crypto:hash(md5, XmlInventory)),
@@ -1419,11 +1593,11 @@ put_bucket_inventory(BucketName, InventoryId, XmlInventory, #aws_config{} = Conf
     Headers = [{"Content-MD5", Md5}, {"content-type", "application/xml"}],
     s3_simple_request(Config, put, BucketName, "/", "inventory", Params, XmlInventory, Headers).
 
--spec delete_bucket_inventory(string(), string()) -> ok | {error, Reason::term()} | no_return().
+-spec delete_bucket_inventory(string(), string()) -> ok | {error, Reason::term()}.
 delete_bucket_inventory(BucketName, InventoryId) when is_list(BucketName), is_list(InventoryId) ->
     delete_bucket_inventory(BucketName, InventoryId, default_config()).
 
--spec delete_bucket_inventory(string(), string(), aws_config()) -> ok | {error, Reason::term()} | no_return().
+-spec delete_bucket_inventory(string(), string(), aws_config()) -> ok | {error, Reason::term()}.
 delete_bucket_inventory(BucketName, InventoryId, #aws_config{} = Config)
     when is_list(BucketName), is_list(InventoryId) ->
 
@@ -1566,6 +1740,69 @@ get_bucket_encryption(BucketName, Config) ->
 
 %% @doc
 %% S3 API:
+%% https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetPublicAccessBlock.html
+%%
+%% `
+%% {ok, [{block_public_acls, true},
+%%       {ignore_public_acls, true},
+%%       {block_public_policy, true},
+%%       {restrict_public_buckets, true}]} = erlcloud_s3:get_public_access_block("bucket-name").
+%% '
+%%
+-spec get_public_access_block(string()) ->
+    {ok, public_access_block_configuration()} | {error, any()}.
+get_public_access_block(BucketName) ->
+    get_public_access_block(BucketName, default_config()).
+
+-spec get_public_access_block(string(), aws_config()) ->
+    {ok, public_access_block_configuration()} | {error, any()}.
+get_public_access_block(BucketName, Config) ->
+    case s3_xml_request2(Config, get, BucketName, "/", "publicAccessBlock", [], <<>>, []) of
+        {ok, XML} ->
+            XPath = "/PublicAccessBlockConfiguration",
+            BlockPublicAcls = XPath ++ "/BlockPublicAcls",
+            IgnorePublicAcls = XPath ++ "/IgnorePublicAcls",
+            BlockPublicPolicy = XPath ++ "/BlockPublicPolicy",
+            RestrictPublicBuckets = XPath ++ "/RestrictPublicBuckets",
+            {ok, [
+                {block_public_acls,       erlcloud_xml:get_bool(BlockPublicAcls, XML)},
+                {ignore_public_acls,      erlcloud_xml:get_bool(IgnorePublicAcls, XML)},
+                {block_public_policy,     erlcloud_xml:get_bool(BlockPublicPolicy, XML)},
+                {restrict_public_buckets, erlcloud_xml:get_bool(RestrictPublicBuckets, XML)}
+            ]};
+        Error ->
+            Error
+    end.
+
+%% @doc
+%% S3 API:
+%% https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutPublicAccessBlock.html
+%%
+%% `
+%% PublicAccessBlock = [{block_public_acls, true},
+%%                      {ignore_public_acls, true},
+%%                      {block_public_policy, true},
+%%                      {restrict_public_buckets, true}],
+%% ok = erlcloud_s3:put_public_access_block("bucket-name", PublicAccessBlock).
+%% '
+%%
+-spec put_public_access_block(string(), public_access_block_configuration()) ->
+    ok | {error, any()}.
+put_public_access_block(BucketName, PublicAccessBlock) ->
+    put_public_access_block(BucketName, PublicAccessBlock, default_config()).
+
+-spec put_public_access_block(string(), public_access_block_configuration(), aws_config()) ->
+    ok | {error, any()}.
+put_public_access_block(BucketName, PublicAccessBlock, Config) ->
+    PublicAccessBlockXML = {'PublicAccessBlockConfiguration', [{xmlns, ?XMLNS_S3}],
+                            encode_public_access_block(PublicAccessBlock)},
+    POSTData = list_to_binary(xmerl:export_simple([PublicAccessBlockXML], xmerl_xml)),
+    Md5 = base64:encode(crypto:hash(md5, POSTData)),
+    Headers = [{"content-md5", Md5}, {"content-type", "application/xml"}],
+    s3_simple_request(Config, put, BucketName, "/", "publicAccessBlock", [], POSTData, Headers).
+
+%% @doc
+%% S3 API:
 %% https://docs.aws.amazon.com/AmazonS3/latest/API/RESTBucketDELETEencryption.html
 %%
 %% `
@@ -1583,7 +1820,7 @@ delete_bucket_encryption(BucketName, Config) ->
 %% takes an S3 bucket notification configuration and creates an xmerl simple
 %% form out of it.
 %% for the examples of input / output of this function, see tests.
--spec create_notification_xml(proplist()) -> tuple().
+-spec create_notification_xml(list(proplist())) -> tuple().
 create_notification_xml(Confs) ->
     {'NotificationConfiguration', [create_notification_xml(ConfName, Params)
         || [{ConfName, Params}] <- Confs]}.
@@ -1620,7 +1857,7 @@ create_notification_param_xml({cloud_function, CF}, Acc) -> [{'CloudFunction', [
 -spec get_bucket_and_key(string()) -> {string(), string()}.
 
 get_bucket_and_key(Uri) ->
-  {ok, Parsed} = http_uri:parse(Uri),
+  {ok, Parsed} = erlcloud_util:uri_parse(Uri),
   {Host, Path} = extract_host_and_path(Parsed),
   extract_location_fields(Host, Path).
 
@@ -1963,6 +2200,26 @@ s3_endpoint_for_region(RegionName) ->
     case RegionName of
         "us-east-1" ->
             "s3-external-1.amazonaws.com";
+	"cn-northwest-1" ->
+	    "s3.cn-northwest-1.amazonaws.com.cn";
+	"cn-north-1" ->
+	    "s3.cn-north-1.amazonaws.com.cn";
         _ ->
             lists:flatten(["s3-", RegionName, ".amazonaws.com"])
     end.
+
+encode_public_access_block(PublicAccessBlockConfiguration) ->
+    [encode_public_access_block_param(Param)
+        || {_Attrib, Value} = Param <- PublicAccessBlockConfiguration,
+                                       Value =:= true orelse Value =:= false].
+
+encode_public_access_block_param({block_public_acls, Value}) ->
+    {'BlockPublicAcls', [atom_to_list(Value)]};
+encode_public_access_block_param({ignore_public_acls, Value}) ->
+    {'IgnorePublicAcls', [atom_to_list(Value)]};
+encode_public_access_block_param({block_public_policy, Value}) ->
+    {'BlockPublicPolicy', [atom_to_list(Value)]};
+encode_public_access_block_param({restrict_public_buckets, Value}) ->
+    {'RestrictPublicBuckets', [atom_to_list(Value)]};
+encode_public_access_block_param(_) ->
+    throw(unknown_public_access_block_param).

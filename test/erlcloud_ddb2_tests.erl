@@ -19,7 +19,7 @@
 -define(_f(F), fun() -> F end).
 
 -export([validate_body/2]).
-                            
+
 %%%===================================================================
 %%% Test entry points
 %%%===================================================================
@@ -53,8 +53,12 @@ operation_test_() ->
       fun describe_limits_output_tests/1,
       fun describe_global_table_input_tests/1,
       fun describe_global_table_output_tests/1,
+      fun describe_global_table_settings_input_tests/1,
+      fun describe_global_table_settings_output_tests/1,
       fun describe_table_input_tests/1,
       fun describe_table_output_tests/1,
+      fun describe_table_replica_auto_scaling_input_tests/1,
+      fun describe_table_replica_auto_scaling_output_tests/1,
       fun describe_time_to_live_input_tests/1,
       fun describe_time_to_live_output_tests/1,
       fun get_item_input_tests/1,
@@ -67,7 +71,7 @@ operation_test_() ->
       fun list_tables_input_tests/1,
       fun list_tables_output_tests/1,
       fun list_tags_of_resource_input_tests/1,
-      fun list_tags_of_resource_output_tests/1,      
+      fun list_tags_of_resource_output_tests/1,
       fun put_item_input_tests/1,
       fun put_item_output_tests/1,
       fun q_input_tests/1,
@@ -80,6 +84,10 @@ operation_test_() ->
       fun scan_output_tests/1,
       fun tag_resource_input_tests/1,
       fun tag_resource_output_tests/1,
+      fun transact_get_items_input_tests/1,
+      fun transact_get_items_output_tests/1,
+      fun transact_write_items_input_tests/1,
+      fun transact_write_items_output_tests/1,
       fun untag_resource_input_tests/1,
       fun untag_resource_output_tests/1,
       fun update_continuous_backups_input_tests/1,
@@ -88,8 +96,12 @@ operation_test_() ->
       fun update_item_output_tests/1,
       fun update_global_table_input_tests/1,
       fun update_global_table_output_tests/1,
+      fun update_global_table_settings_input_tests/1,
+      fun update_global_table_settings_output_tests/1,
       fun update_table_input_tests/1,
       fun update_table_output_tests/1,
+      fun update_table_replica_auto_scaling_input_tests/1,
+      fun update_table_replica_auto_scaling_output_tests/1,
       fun update_time_to_live_input_tests/1,
       fun update_time_to_live_output_tests/1
      ]}.
@@ -124,8 +136,8 @@ validate_body(<<>> = Actual, Want) ->
   ?debugFmt("~nEXPECTED~n~p~nACTUAL~n~p~n", [Want, Actual]),
   ?assertEqual(Want, Actual);
 validate_body(Body, Expected) ->
-    Want = sort_json(jsx:decode(list_to_binary(Expected))),
-    Actual = sort_json(jsx:decode(Body)),
+    Want = sort_json(jsx:decode(list_to_binary(Expected), [{return_maps, false}])),
+    Actual = sort_json(jsx:decode(Body, [{return_maps, false}])),
     case Want =:= Actual of
         true -> ok;
         false ->
@@ -137,7 +149,7 @@ validate_body(Body, Expected) ->
 %% Validates the request body and responds with the provided response.
 -spec input_expect(string(), expected_body()) -> fun().
 input_expect(Response, Expected) ->
-    fun(_Url, post, _Headers, Body, _Timeout, _Config) -> 
+    fun(_Url, post, _Headers, Body, _Timeout, _Config) ->
             validate_body(Body, Expected),
             {ok, {{200, "OK"}, [], list_to_binary(Response)}}
     end.
@@ -147,7 +159,7 @@ input_expect(Response, Expected) ->
 -spec input_test(string(), input_test_spec()) -> tuple().
 input_test(Response, {Line, {Description, Fun, Expected}}) when
       is_list(Description) ->
-    {Description, 
+    {Description,
      {Line,
       fun() ->
               meck:expect(erlcloud_httpc, request, input_expect(Response, Expected)),
@@ -169,8 +181,8 @@ input_tests(Response, Tests) ->
 %% returns the mock of the erlcloud_httpc function output tests expect to be called.
 -spec output_expect(string()) -> fun().
 output_expect(Response) ->
-    fun(_Url, post, _Headers, _Body, _Timeout, _Config) -> 
-            {ok, {{200, "OK"}, [], list_to_binary(Response)}} 
+    fun(_Url, post, _Headers, _Body, _Timeout, _Config) ->
+            {ok, {{200, "OK"}, [], list_to_binary(Response)}}
     end.
 
 %% output_test converts an output_test specifier into an eunit test generator
@@ -192,9 +204,9 @@ output_test(Fun, {Line, {Description, Response, Result}}) ->
       end}}.
 %% output_test(Fun, {Line, {Response, Result}}) ->
 %%     output_test(Fun, {Line, {"", Response, Result}}).
-      
+
 %% output_tests converts a list of output_test specifiers into an eunit test generator
--spec output_tests(fun(), [output_test_spec()]) -> [term()].       
+-spec output_tests(fun(), [output_test_spec()]) -> [term()].
 output_tests(Fun, Tests) ->
     [output_test(Fun, Test) || Test <- Tests].
 
@@ -206,7 +218,7 @@ output_tests(Fun, Tests) ->
 -spec httpc_response(pos_integer(), string()) -> tuple().
 httpc_response(Code, Body) ->
     {ok, {{Code, ""}, [], list_to_binary(Body)}}.
-    
+
 -type error_test_spec() :: {pos_integer(), {string(), list(), term()}}.
 -spec error_test(fun(), error_test_spec()) -> tuple().
 error_test(Fun, {Line, {Description, Responses, Result}}) ->
@@ -220,7 +232,7 @@ error_test(Fun, {Line, {Description, Responses, Result}}) ->
               Actual = Fun(),
               ?assertEqual(Result, Actual)
       end}}.
-      
+
 -spec error_tests(fun(), [error_test_spec()]) -> [term()].
 error_tests(Fun, Tests) ->
     [error_test(Fun, Test) || Test <- Tests].
@@ -231,13 +243,16 @@ error_tests(Fun, Tests) ->
 
 input_exception_test_() ->
     [?_assertError({erlcloud_ddb, {invalid_attr_value, {n, "string"}}},
-                   erlcloud_ddb2:get_item(<<"Table">>, {<<"K">>, {n, "string"}})),
+                   erlcloud_ddb2:get_item(<<"Table">>, {<<"K">>, {n, "string"}}))]
+    ++ input_exception_failures_test_().
+
+-dialyzer({nowarn_function, input_exception_failures_test_/0}).
+input_exception_failures_test_() ->
      %% This test causes an expected dialyzer error
-     ?_assertError({erlcloud_ddb, {invalid_item, <<"Attr">>}},
+    [?_assertError({erlcloud_ddb, {invalid_item, <<"Attr">>}},
                    erlcloud_ddb2:put_item(<<"Table">>, <<"Attr">>)),
      ?_assertError({erlcloud_ddb, {invalid_opt, {myopt, myval}}},
-                   erlcloud_ddb2:list_tables([{myopt, myval}]))
-    ].
+                   erlcloud_ddb2:list_tables([{myopt, myval}]))].
 
 %% Error handling tests based on:
 %% http://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ErrorHandling.html
@@ -248,12 +263,12 @@ error_handling_tests(_) ->
      \"status\":{\"S\":\"online\"}
     },
 \"ConsumedCapacityUnits\": 1
-}"                                   
+}"
                                   ),
     OkResult = {ok, [{<<"friends">>, [<<"Lynda">>, <<"Aaron">>]},
                      {<<"status">>, <<"online">>}]},
 
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"Test retry after ProvisionedThroughputExceededException",
              [httpc_response(400, "
@@ -275,9 +290,62 @@ error_handling_tests(_) ->
               OkResponse],
              OkResult})
         ],
-    
-    error_tests(?_f(erlcloud_ddb2:get_item(<<"table">>, {<<"k">>, <<"v">>})), Tests).
 
+    error_tests(?_f(erlcloud_ddb2:get_item(<<"table">>, {<<"k">>, <<"v">>})), Tests),
+
+    TransactionErrorResult = {error, {<<"TransactionCanceledException">>,
+                                      {<<"Transaction cancelled, please refer cancellation reasons for specific reasons [None, ConditionalCheckFailed]">>,
+                                       [{<<"None">>, null}, {<<"ConditionalCheckFailed">>, <<"The conditional request failed">>}]}}},
+
+    TransactOkResponse = httpc_response(200, "{}"),
+    TransactOkResult = {ok, []},
+
+    TransactTests =
+        [?_ddb_test(
+            {"Test return output for TransactionCanceledException error",
+             [httpc_response(400, "
+{
+    \"__type\":\"com.amazonaws.dynamodb.v20120810#TransactionCanceledException\",
+    \"CancellationReasons\": [
+        {
+            \"Code\":\"None\",
+        },
+        {
+            \"Code\":\"ConditionalCheckFailed\",
+            \"Message\":\"The conditional request failed\",
+        }
+    ],
+    \"message\":\"Transaction cancelled, please refer cancellation reasons for specific reasons [None, ConditionalCheckFailed]\"
+}"
+                            )],
+              TransactionErrorResult}),
+         ?_ddb_test(
+            {"Test retry after ProvisionedThroughputExceeded cancellation reason",
+             [httpc_response(400, "
+{
+    \"__type\":\"com.amazonaws.dynamodb.v20120810#TransactionCanceledException\",
+    \"CancellationReasons\": [
+        {
+            \"Code\":\"None\",
+        },
+        {
+            \"Code\":\"ProvisionedThroughputExceeded\",
+            \"Message\":\"The level of configured provisioned throughput for the table was exceeded. Consider increasing your provisioning level with the UpdateTable API\",
+        }
+    ],
+    \"message\":\"Transaction cancelled, please refer cancellation reasons for specific reasons [None, ProvisionedThroughputExceeded]\"
+}"
+                            ),
+              TransactOkResponse],
+             TransactOkResult})
+        ],
+
+    Transact = [{put, {<<"table">>, [{<<"k">>, {s, <<"v">>}}], []}},
+                {condition_check, {<<"table">>, [{<<"k">>, {s, <<"v2">>}}],
+                                   [{condition_expression, <<"approved = :a">>},
+                                    {expression_attribute_values, [{<<":a">>, <<"yes">>}]}]}}],
+
+    error_tests(?_f(erlcloud_ddb2:transact_write_items(Transact)), TransactTests).
 
 %% BatchGetItem test based on the API examples:
 %% http://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_BatchGetItem.html
@@ -286,13 +354,13 @@ batch_get_item_input_tests(_) ->
         [?_ddb_test(
             {"BatchGetItem example request",
              ?_f(erlcloud_ddb2:batch_get_item(
-                   [{<<"Forum">>, 
+                   [{<<"Forum">>,
                      [{<<"Name">>, {s, <<"Amazon DynamoDB">>}},
-                      {<<"Name">>, {s, <<"Amazon RDS">>}}, 
+                      {<<"Name">>, {s, <<"Amazon RDS">>}},
                       {<<"Name">>, {s, <<"Amazon Redshift">>}}],
                      [{attributes_to_get, [<<"Name">>, <<"Threads">>, <<"Messages">>, <<"Views">>]}]},
-                    {<<"Thread">>, 
-                     [[{<<"ForumName">>, {s, <<"Amazon DynamoDB">>}}, 
+                    {<<"Thread">>,
+                     [[{<<"ForumName">>, {s, <<"Amazon DynamoDB">>}},
                        {<<"Subject">>, {s, <<"Concurrent reads">>}}]],
                      [{attributes_to_get, [<<"Tags">>, <<"Message">>]}]}],
                    [{return_consumed_capacity, total}])), "
@@ -447,7 +515,7 @@ batch_get_item_input_tests(_) ->
     input_tests(Response, Tests).
 
 batch_get_item_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"BatchGetItem example response", "
 {
@@ -521,10 +589,10 @@ batch_get_item_output_tests(_) ->
     ]
 }",
              {ok, #ddb2_batch_get_item
-              {consumed_capacity = 
+              {consumed_capacity =
                    [#ddb2_consumed_capacity{table_name = <<"Forum">>, capacity_units = 3},
                     #ddb2_consumed_capacity{table_name = <<"Thread">>, capacity_units = 1}],
-               responses = 
+               responses =
                    [#ddb2_batch_get_item_response
                     {table = <<"Forum">>,
                      items = [[{<<"Name">>, <<"Amazon DynamoDB">>},
@@ -579,19 +647,19 @@ batch_get_item_output_tests(_) ->
     }
 }",
              {ok, #ddb2_batch_get_item
-              {responses = [], 
-               unprocessed_keys = 
-                   [{<<"Forum">>, 
+              {responses = [],
+               unprocessed_keys =
+                   [{<<"Forum">>,
                      [[{<<"Name">>, {s, <<"Amazon DynamoDB">>}}],
-                      [{<<"Name">>, {s, <<"Amazon RDS">>}}], 
+                      [{<<"Name">>, {s, <<"Amazon RDS">>}}],
                       [{<<"Name">>, {s, <<"Amazon Redshift">>}}]],
                      [{attributes_to_get, [<<"Name">>, <<"Threads">>, <<"Messages">>, <<"Views">>]}]},
-                    {<<"Thread">>, 
-                     [[{<<"ForumName">>, {s, <<"Amazon DynamoDB">>}}, 
+                    {<<"Thread">>,
+                     [[{<<"ForumName">>, {s, <<"Amazon DynamoDB">>}},
                        {<<"Subject">>, {s, <<"Concurrent reads">>}}]],
                      [{attributes_to_get, [<<"Tags">>, <<"Message">>]}]}]}}})
         ],
-    
+
     output_tests(?_f(erlcloud_ddb2:batch_get_item([{<<"table">>, [{<<"k">>, <<"v">>}]}], [{out, record}])), Tests).
 
 %% BatchWriteItem test based on the API examples:
@@ -734,7 +802,7 @@ batch_write_item_input_tests(_) ->
     input_tests(Response, Tests).
 
 batch_write_item_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"BatchWriteItem example response", "
 {
@@ -764,7 +832,7 @@ batch_write_item_output_tests(_) ->
              {ok, #ddb2_batch_write_item
               {consumed_capacity = [#ddb2_consumed_capacity{table_name = <<"Forum">>, capacity_units = 3}],
                item_collection_metrics = undefined,
-               unprocessed_items = [{<<"Forum">>, 
+               unprocessed_items = [{<<"Forum">>,
                                      [{put, [{<<"Name">>, {s, <<"Amazon ElastiCache">>}},
                                              {<<"Category">>, {s, <<"Amazon Web Services">>}}]}]}]}}}),
          ?_ddb_test(
@@ -797,7 +865,7 @@ batch_write_item_output_tests(_) ->
     }
 }",
              {ok, #ddb2_batch_write_item
-              {consumed_capacity = undefined, 
+              {consumed_capacity = undefined,
                item_collection_metrics = undefined,
                unprocessed_items =
                    [{<<"Forum">>, [{put, [{<<"Name">>, {s, <<"Amazon DynamoDB">>}},
@@ -848,8 +916,8 @@ batch_write_item_output_tests(_) ->
     }
 }",
              {ok, #ddb2_batch_write_item
-              {consumed_capacity = undefined, 
-               item_collection_metrics = 
+              {consumed_capacity = undefined,
+               item_collection_metrics =
                    [{<<"Table1">>,
                      [#ddb2_item_collection_metrics
                       {item_collection_key = <<"value1">>,
@@ -865,7 +933,7 @@ batch_write_item_output_tests(_) ->
                      ]}],
                unprocessed_items = []}}})
         ],
-    
+
     output_tests(?_f(erlcloud_ddb2:batch_write_item([], [{out, record}])), Tests).
 
 %% CreateBackup test based on the API examples:
@@ -926,10 +994,10 @@ create_global_table_input_tests(_) ->
                                                                     {region_name, <<"us-west-2">>}])), "
 {
    \"GlobalTableName\": \"Thread\",
-   \"ReplicationGroup\": [ 
-      { 
+   \"ReplicationGroup\": [
+      {
          \"RegionName\": \"us-east-1\"
-      },{ 
+      },{
          \"RegionName\": \"us-west-2\"
       }
    ]
@@ -937,11 +1005,11 @@ create_global_table_input_tests(_) ->
               }),
            ?_ddb_test(
               {"CreateGlobalTable example request (1 region)",
-               ?_f(erlcloud_ddb2:create_global_table(<<"Thread">>, #ddb2_replica{region_name = <<"us-west-2">>})), "
+               ?_f(erlcloud_ddb2:create_global_table(<<"Thread">>, [#ddb2_replica{region_name = <<"us-west-2">>}])), "
 {
    \"GlobalTableName\": \"Thread\",
-   \"ReplicationGroup\": [ 
-      { 
+   \"ReplicationGroup\": [
+      {
          \"RegionName\": \"us-west-2\"
       }
    ]
@@ -949,15 +1017,15 @@ create_global_table_input_tests(_) ->
               })],
       Response = "
 {
-   \"GlobalTableDescription\": { 
+   \"GlobalTableDescription\": {
       \"CreationDateTime\": 1519161181.107,
       \"GlobalTableArn\": \"arn:aws:dynamodb::111122223333:global-table/Thread\",
       \"GlobalTableName\": \"Thread\",
       \"GlobalTableStatus\": \"CREATING\",
-      \"ReplicationGroup\": [ 
-          { 
+      \"ReplicationGroup\": [
+          {
              \"RegionName\": \"us-east-1\"
-          },{ 
+          },{
              \"RegionName\": \"us-west-2\"
           }
       ]
@@ -967,17 +1035,17 @@ create_global_table_input_tests(_) ->
 
 %% CreateGlobalTable output test:
 create_global_table_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"CreateGlobalTable example response with CREATING status ", "
 {
-   \"GlobalTableDescription\": { 
+   \"GlobalTableDescription\": {
       \"CreationDateTime\": 1519161181.107,
       \"GlobalTableArn\": \"arn:aws:dynamodb::111122223333:global-table/Thread\",
       \"GlobalTableName\": \"Thread\",
       \"GlobalTableStatus\": \"CREATING\",
-      \"ReplicationGroup\": [ 
-          { 
+      \"ReplicationGroup\": [
+          {
              \"RegionName\": \"us-east-1\"
           }
       ]
@@ -993,15 +1061,15 @@ create_global_table_output_tests(_) ->
          ?_ddb_test(
             {"CreateGlobalTable example response with ACTIVE status ", "
 {
-   \"GlobalTableDescription\": { 
+   \"GlobalTableDescription\": {
       \"CreationDateTime\": 1519161181.107,
       \"GlobalTableArn\": \"arn:aws:dynamodb::111122223333:global-table/Thread\",
       \"GlobalTableName\": \"Thread\",
       \"GlobalTableStatus\": \"ACTIVE\",
-      \"ReplicationGroup\": [ 
-          { 
+      \"ReplicationGroup\": [
+          {
              \"RegionName\": \"us-east-1\"
-          },{ 
+          },{
              \"RegionName\": \"eu-west-1\"
           }
       ]
@@ -1014,7 +1082,7 @@ create_global_table_output_tests(_) ->
                 global_table_status = active,
                 replication_group = [#ddb2_replica_description{region_name = <<"us-east-1">>},
                                      #ddb2_replica_description{region_name = <<"eu-west-1">>}]}}})],
-    output_tests(?_f(erlcloud_ddb2:create_global_table(<<"Thread">>, {region_name, <<"us-east-1">>})), Tests).
+    output_tests(?_f(erlcloud_ddb2:create_global_table(<<"Thread">>, [{region_name, <<"us-east-1">>}])), Tests).
 
 %% CreateTable test based on the API examples:
 %% http://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_CreateTable.html
@@ -1028,7 +1096,7 @@ create_table_input_tests(_) ->
                     {<<"Subject">>, s},
                     {<<"LastPostDateTime">>, s}],
                    {<<"ForumName">>, <<"Subject">>},
-                   5, 
+                   5,
                    5,
                    [{local_secondary_indexes,
                      [{<<"LastPostIndex">>, <<"LastPostDateTime">>, keys_only}]},
@@ -1071,7 +1139,7 @@ create_table_input_tests(_) ->
                 \"WriteCapacityUnits\": 5
             }
         }
-    ],    
+    ],
     \"TableName\": \"Thread\",
     \"KeySchema\": [
         {
@@ -1115,12 +1183,12 @@ create_table_input_tests(_) ->
                     {<<"Subject">>, s},
                     {<<"LastPostDateTime">>, s}],
                    {<<"ForumName">>, <<"Subject">>},
-                   5, 
+                   5,
                    5,
                    [{local_secondary_indexes,
                      [{<<"LastPostIndex">>, <<"LastPostDateTime">>, {include, [<<"Author">>, <<"Body">>]}}]},
                     {global_secondary_indexes,
-                     [{<<"SubjectIndex">>, {<<"Subject">>, <<"LastPostDateTime">>}, {include, [<<"Author">>]}, 10, 5}]}]  
+                     [{<<"SubjectIndex">>, {<<"Subject">>, <<"LastPostDateTime">>}, {include, [<<"Author">>]}, 10, 5}]}]
                   )), "
 {
     \"AttributeDefinitions\": [
@@ -1161,7 +1229,7 @@ create_table_input_tests(_) ->
                 \"WriteCapacityUnits\": 5
             }
         }
-    ],  
+    ],
     \"TableName\": \"Thread\",
     \"KeySchema\": [
         {
@@ -1204,7 +1272,7 @@ create_table_input_tests(_) ->
                    <<"Thread">>,
                    {<<"ForumName">>, s},
                    <<"ForumName">>,
-                   1, 
+                   1,
                    1
                   )), "
 {
@@ -1224,6 +1292,173 @@ create_table_input_tests(_) ->
     \"ProvisionedThroughput\": {
         \"ReadCapacityUnits\": 1,
         \"WriteCapacityUnits\": 1
+    }
+}"
+            }),
+         ?_ddb_test(
+            {"CreateTable with billing_mode = provisioned",
+             ?_f(erlcloud_ddb2:create_table(
+                   <<"Thread">>,
+                   {<<"ForumName">>, s},
+                   <<"ForumName">>,
+                   [{billing_mode, provisioned},
+                    {provisioned_throughput, {1,1}}]
+                  )), "
+{
+    \"AttributeDefinitions\": [
+        {
+            \"AttributeName\": \"ForumName\",
+            \"AttributeType\": \"S\"
+        }
+    ],
+    \"BillingMode\": \"PROVISIONED\",
+    \"TableName\": \"Thread\",
+    \"KeySchema\": [
+        {
+            \"AttributeName\": \"ForumName\",
+            \"KeyType\": \"HASH\"
+        }
+    ],
+    \"ProvisionedThroughput\": {
+        \"ReadCapacityUnits\": 1,
+        \"WriteCapacityUnits\": 1
+    }
+}"
+            }),
+         ?_ddb_test(
+            {"CreateTable with billing_mode = pay_per_request",
+             ?_f(erlcloud_ddb2:create_table(
+                   <<"Thread">>,
+                   {<<"ForumName">>, s},
+                   <<"ForumName">>,
+                   [{billing_mode, pay_per_request},
+                    {global_secondary_indexes,
+                     [{<<"SubjectIndex">>, {<<"Subject">>, <<"LastPostDateTime">>}, {include, [<<"Author">>]}}]}]
+                  )), "
+{
+    \"AttributeDefinitions\": [
+        {
+            \"AttributeName\": \"ForumName\",
+            \"AttributeType\": \"S\"
+        }
+    ],
+    \"BillingMode\": \"PAY_PER_REQUEST\",
+    \"GlobalSecondaryIndexes\": [
+        {
+            \"IndexName\": \"SubjectIndex\",
+            \"KeySchema\": [
+                {
+                    \"AttributeName\": \"Subject\",
+                    \"KeyType\": \"HASH\"
+                },
+                {
+                    \"AttributeName\": \"LastPostDateTime\",
+                    \"KeyType\": \"RANGE\"
+                }
+            ],
+            \"Projection\": {
+                \"NonKeyAttributes\": [
+                    \"Author\"
+                ],
+                \"ProjectionType\": \"INCLUDE\"
+            }
+        }
+    ],
+    \"TableName\": \"Thread\",
+    \"KeySchema\": [
+        {
+            \"AttributeName\": \"ForumName\",
+            \"KeyType\": \"HASH\"
+        }
+    ]
+}"
+            }),
+         ?_ddb_test(
+            {"CreateTable with deletion_protection_enabled = true",
+             ?_f(erlcloud_ddb2:create_table(
+                   <<"Thread">>,
+                   [{<<"ForumName">>, s},
+                    {<<"Subject">>, s},
+                    {<<"LastPostDateTime">>, s}],
+                   {<<"ForumName">>, <<"Subject">>},
+                   5,
+                   5,
+                   [{local_secondary_indexes,
+                     [{<<"LastPostIndex">>, <<"LastPostDateTime">>, keys_only}]},
+                    {global_secondary_indexes,
+                     [{<<"SubjectIndex">>, {<<"Subject">>, <<"LastPostDateTime">>}, keys_only, 10, 5}]},
+                    {deletion_protection_enabled, true}]
+                  )), "
+{
+    \"AttributeDefinitions\": [
+        {
+            \"AttributeName\": \"ForumName\",
+            \"AttributeType\": \"S\"
+        },
+        {
+            \"AttributeName\": \"Subject\",
+            \"AttributeType\": \"S\"
+        },
+        {
+            \"AttributeName\": \"LastPostDateTime\",
+            \"AttributeType\": \"S\"
+        }
+    ],
+    \"GlobalSecondaryIndexes\": [
+        {
+            \"IndexName\": \"SubjectIndex\",
+            \"KeySchema\": [
+                {
+                    \"AttributeName\": \"Subject\",
+                    \"KeyType\": \"HASH\"
+                },
+                {
+                    \"AttributeName\": \"LastPostDateTime\",
+                    \"KeyType\": \"RANGE\"
+                }
+            ],
+            \"Projection\": {
+                \"ProjectionType\": \"KEYS_ONLY\"
+            },
+            \"ProvisionedThroughput\": {
+                \"ReadCapacityUnits\": 10,
+                \"WriteCapacityUnits\": 5
+            }
+        }
+    ],
+    \"DeletionProtectionEnabled\": true,
+    \"TableName\": \"Thread\",
+    \"KeySchema\": [
+        {
+            \"AttributeName\": \"ForumName\",
+            \"KeyType\": \"HASH\"
+        },
+        {
+            \"AttributeName\": \"Subject\",
+            \"KeyType\": \"RANGE\"
+        }
+    ],
+    \"LocalSecondaryIndexes\": [
+        {
+            \"IndexName\": \"LastPostIndex\",
+            \"KeySchema\": [
+                {
+                    \"AttributeName\": \"ForumName\",
+                    \"KeyType\": \"HASH\"
+                },
+                {
+                    \"AttributeName\": \"LastPostDateTime\",
+                    \"KeyType\": \"RANGE\"
+                }
+            ],
+            \"Projection\": {
+                \"ProjectionType\": \"KEYS_ONLY\"
+            }
+        }
+    ],
+    \"ProvisionedThroughput\": {
+        \"ReadCapacityUnits\": 5,
+        \"WriteCapacityUnits\": 5
     }
 }"
             })
@@ -1513,7 +1748,7 @@ delete_backup_output_tests(_) ->
  output_tests(?_f(erlcloud_ddb2:delete_backup(<<"arn:aws:dynamodb:">>)), Tests).
 
 create_table_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"CreateTable example response", "
 {
@@ -1532,6 +1767,10 @@ create_table_output_tests(_) ->
                 \"AttributeType\": \"S\"
             }
         ],
+        \"BillingModeSummary\": {
+            \"BillingMode\": \"PROVISIONED\",
+            \"LastUpdateToPayPerRequestDateTime\": 1.36372808007E9
+        },
         \"CreationDateTime\": 1.36372808007E9,
         \"GlobalSecondaryIndexes\": [
             {
@@ -1606,6 +1845,10 @@ create_table_output_tests(_) ->
               {attribute_definitions = [{<<"ForumName">>, s},
                                         {<<"LastPostDateTime">>, s},
                                         {<<"Subject">>, s}],
+               billing_mode_summary =
+                   #ddb2_billing_mode_summary{
+                       billing_mode = provisioned,
+                       last_update_to_pay_per_request_date_time = 1363728080.07},
                creation_date_time = 1363728080.07,
                item_count = 0,
                key_schema = {<<"ForumName">>, <<"Subject">>},
@@ -1616,7 +1859,7 @@ create_table_output_tests(_) ->
                        item_count = 0,
                        key_schema = {<<"ForumName">>, <<"LastPostDateTime">>},
                        projection = keys_only}],
-               global_secondary_indexes = 
+               global_secondary_indexes =
                    [#ddb2_global_secondary_index_description{
                        index_name = <<"SubjectIndex">>,
                        index_size_bytes = 2048,
@@ -1631,7 +1874,7 @@ create_table_output_tests(_) ->
                           read_capacity_units = 3,
                           write_capacity_units = 4}
                     }],
-               provisioned_throughput = 
+               provisioned_throughput =
                    #ddb2_provisioned_throughput_description{
                       last_decrease_date_time = undefined,
                       last_increase_date_time = undefined,
@@ -1659,6 +1902,10 @@ create_table_output_tests(_) ->
                 \"AttributeType\": \"S\"
             }
         ],
+        \"BillingModeSummary\": {
+            \"BillingMode\": \"PROVISIONED\",
+            \"LastUpdateToPayPerRequestDateTime\": 1.36372808007E9
+        },
         \"GlobalSecondaryIndexes\": [
             {
                 \"IndexName\": \"SubjectIndex\",
@@ -1689,7 +1936,7 @@ create_table_output_tests(_) ->
                     \"WriteCapacityUnits\": 4
                 }
             }
-        ],        
+        ],
         \"CreationDateTime\": 1.36372808007E9,
         \"ItemCount\": 0,
         \"KeySchema\": [
@@ -1737,6 +1984,10 @@ create_table_output_tests(_) ->
               {attribute_definitions = [{<<"ForumName">>, s},
                                         {<<"LastPostDateTime">>, s},
                                         {<<"Subject">>, s}],
+               billing_mode_summary =
+                   #ddb2_billing_mode_summary{
+                       billing_mode = provisioned,
+                       last_update_to_pay_per_request_date_time = 1363728080.07},
                creation_date_time = 1363728080.07,
                item_count = 0,
                key_schema = {<<"ForumName">>, <<"Subject">>},
@@ -1747,7 +1998,7 @@ create_table_output_tests(_) ->
                        item_count = 0,
                        key_schema = {<<"ForumName">>, <<"LastPostDateTime">>},
                        projection = {include, [<<"Author">>, <<"Body">>]}}],
-               global_secondary_indexes = 
+               global_secondary_indexes =
                    [#ddb2_global_secondary_index_description{
                        index_name = <<"SubjectIndex">>,
                        index_size_bytes = 2048,
@@ -1762,7 +2013,7 @@ create_table_output_tests(_) ->
                           read_capacity_units = 3,
                           write_capacity_units = 4}
                     }],
-               provisioned_throughput = 
+               provisioned_throughput =
                    #ddb2_provisioned_throughput_description{
                       last_decrease_date_time = undefined,
                       last_increase_date_time = undefined,
@@ -1782,6 +2033,10 @@ create_table_output_tests(_) ->
                 \"AttributeType\": \"S\"
             }
         ],
+        \"BillingModeSummary\": {
+            \"BillingMode\": \"PROVISIONED\",
+            \"LastUpdateToPayPerRequestDateTime\": 1.36372808007E9
+        },
         \"CreationDateTime\": 1.36372808007E9,
         \"ItemCount\": 0,
         \"KeySchema\": [
@@ -1802,11 +2057,67 @@ create_table_output_tests(_) ->
 }",
              {ok, #ddb2_table_description
               {attribute_definitions = [{<<"ForumName">>, s}],
+               billing_mode_summary =
+               #ddb2_billing_mode_summary{
+                   billing_mode = provisioned,
+                   last_update_to_pay_per_request_date_time = 1363728080.07},
                creation_date_time = 1363728080.07,
                item_count = 0,
                key_schema = <<"ForumName">>,
                local_secondary_indexes = undefined,
-               provisioned_throughput = 
+               provisioned_throughput =
+                   #ddb2_provisioned_throughput_description{
+                      last_decrease_date_time = undefined,
+                      last_increase_date_time = undefined,
+                      number_of_decreases_today = 0,
+                      read_capacity_units = 1,
+                      write_capacity_units = 1},
+               table_name = <<"Thread">>,
+               table_size_bytes = 0,
+               table_status = creating}}}),
+         ?_ddb_test(
+            {"CreateTable response with billing_mode = pay_per_request", "
+{
+    \"TableDescription\": {
+        \"AttributeDefinitions\": [
+            {
+                \"AttributeName\": \"ForumName\",
+                \"AttributeType\": \"S\"
+            }
+        ],
+        \"BillingModeSummary\": {
+            \"BillingMode\": \"PAY_PER_REQUEST\",
+            \"LastUpdateToPayPerRequestDateTime\": 1.36372808007E9
+        },
+        \"CreationDateTime\": 1.36372808007E9,
+        \"ItemCount\": 0,
+        \"KeySchema\": [
+            {
+                \"AttributeName\": \"ForumName\",
+                \"KeyType\": \"HASH\"
+            }
+        ],
+        \"ProvisionedThroughput\": {
+            \"NumberOfDecreasesToday\": 0,
+            \"ReadCapacityUnits\": 1,
+            \"WriteCapacityUnits\": 1
+        },
+        \"TableName\": \"Thread\",
+        \"TableSizeBytes\": 0,
+        \"TableStatus\": \"CREATING\"
+    }
+}",
+             {ok, #ddb2_table_description
+              {attribute_definitions = [{<<"ForumName">>, s}],
+               billing_mode_summary =
+               #ddb2_billing_mode_summary{
+                   billing_mode = pay_per_request,
+                   last_update_to_pay_per_request_date_time = 1363728080.07},
+               creation_date_time = 1363728080.07,
+               item_count = 0,
+               key_schema = <<"ForumName">>,
+               local_secondary_indexes = undefined,
+               provisioned_throughput =
                    #ddb2_provisioned_throughput_description{
                       last_decrease_date_time = undefined,
                       last_increase_date_time = undefined,
@@ -1817,7 +2128,7 @@ create_table_output_tests(_) ->
                table_size_bytes = 0,
                table_status = creating}}})
         ],
-    
+
     output_tests(?_f(erlcloud_ddb2:create_table(<<"name">>, [{<<"key">>, s}], <<"key">>, 5, 10)), Tests).
 
 %% DeleteItem test based on the API examples:
@@ -1826,7 +2137,7 @@ delete_item_input_tests(_) ->
     Tests =
         [?_ddb_test(
             {"DeleteItem example request",
-             ?_f(erlcloud_ddb2:delete_item(<<"Thread">>, 
+             ?_f(erlcloud_ddb2:delete_item(<<"Thread">>,
                                           [{<<"ForumName">>, {s, <<"Amazon DynamoDB">>}},
                                            {<<"Subject">>, {s, <<"How do I update multiple items?">>}}],
                                           [{return_values, all_old},
@@ -1872,7 +2183,7 @@ delete_item_input_tests(_) ->
             }),
          ?_ddb_test(
             {"DeleteItem return metrics",
-             ?_f(erlcloud_ddb2:delete_item(<<"Thread">>, 
+             ?_f(erlcloud_ddb2:delete_item(<<"Thread">>,
                                           {<<"ForumName">>, {s, <<"Amazon DynamoDB">>}},
                                           [{return_consumed_capacity, total},
                                            {return_item_collection_metrics, size}])), "
@@ -1915,7 +2226,7 @@ delete_item_input_tests(_) ->
     input_tests(Response, Tests).
 
 delete_item_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"DeleteItem example response", "
 {
@@ -1975,7 +2286,7 @@ delete_item_output_tests(_) ->
                             size_estimate_range_gb = {1,2}}
                      }}})
         ],
-    
+
     output_tests(?_f(erlcloud_ddb2:delete_item(<<"table">>, {<<"k">>, <<"v">>}, [{out, record}])), Tests).
 
 %% DeleteTable test based on the API examples:
@@ -2008,7 +2319,7 @@ delete_table_input_tests(_) ->
     input_tests(Response, Tests).
 
 delete_table_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"DeleteTable example response", "
 {
@@ -2034,7 +2345,7 @@ delete_table_output_tests(_) ->
                table_size_bytes = 0,
                table_status = deleting}}})
         ],
-    
+
     output_tests(?_f(erlcloud_ddb2:delete_table(<<"name">>)), Tests).
 
 %% DescribeBackup test based on the API examples:
@@ -2363,15 +2674,15 @@ describe_global_table_input_tests(_) ->
               })],
       Response = "
 {
-   \"GlobalTableDescription\": { 
+   \"GlobalTableDescription\": {
       \"CreationDateTime\": 1519161181.107,
       \"GlobalTableArn\": \"arn:aws:dynamodb::111122223333:global-table/Thread\",
       \"GlobalTableName\": \"Thread\",
       \"GlobalTableStatus\": \"ACTIVE\",
-      \"ReplicationGroup\": [ 
-          { 
+      \"ReplicationGroup\": [
+          {
              \"RegionName\": \"us-east-1\"
-          },{ 
+          },{
              \"RegionName\": \"us-west-2\"
           }
       ]
@@ -2381,17 +2692,17 @@ describe_global_table_input_tests(_) ->
 
 %% DescribeGlobalTable output test:
 describe_global_table_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"DescribeGlobalTable example response with CREATING status ", "
 {
-   \"GlobalTableDescription\": { 
+   \"GlobalTableDescription\": {
       \"CreationDateTime\": 1519161181.107,
       \"GlobalTableArn\": \"arn:aws:dynamodb::111122223333:global-table/Thread\",
       \"GlobalTableName\": \"Thread\",
       \"GlobalTableStatus\": \"CREATING\",
-      \"ReplicationGroup\": [ 
-          { 
+      \"ReplicationGroup\": [
+          {
              \"RegionName\": \"us-east-1\"
           }
       ]
@@ -2407,15 +2718,15 @@ describe_global_table_output_tests(_) ->
          ?_ddb_test(
             {"DescribeGlobalTable example response with ACTIVE status ", "
 {
-   \"GlobalTableDescription\": { 
+   \"GlobalTableDescription\": {
       \"CreationDateTime\": 1519161181.107,
       \"GlobalTableArn\": \"arn:aws:dynamodb::111122223333:global-table/Thread\",
       \"GlobalTableName\": \"Thread\",
       \"GlobalTableStatus\": \"ACTIVE\",
-      \"ReplicationGroup\": [ 
-          { 
+      \"ReplicationGroup\": [
+          {
              \"RegionName\": \"us-east-1\"
-          },{ 
+          },{
              \"RegionName\": \"eu-west-1\"
           }
       ]
@@ -2429,6 +2740,254 @@ describe_global_table_output_tests(_) ->
                 replication_group = [#ddb2_replica_description{region_name = <<"us-east-1">>},
                                      #ddb2_replica_description{region_name = <<"eu-west-1">>}]}}})],
     output_tests(?_f(erlcloud_ddb2:describe_global_table(<<"Thread">>)), Tests).
+
+%% DescribeGlobalTableSettings tests based on the API request/response syntax:
+%% http://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_DescribeGlobalTableSettings.html
+describe_global_table_settings_input_tests(_) ->
+    Tests =
+        [?_ddb_test(
+            {"DescribeGlobalTableSettings example request",
+             ?_f(erlcloud_ddb2:describe_global_table_settings(<<"Thread">>)), "
+{
+    \"GlobalTableName\":\"Thread\"
+}"
+            })
+        ],
+    Response = "
+{
+  \"GlobalTableName\": \"Thread\",
+  \"ReplicaSettings\": [
+    {
+      \"RegionName\": \"us-west-2\",
+      \"ReplicaBillingModeSummary\": {
+        \"BillingMode\": \"PROVISIONED\",
+        \"LastUpdateToPayPerRequestDateTime\": 1578092745.455
+      },
+      \"ReplicaGlobalSecondaryIndexSettings\": [
+        {
+          \"IndexName\": \"id-index\",
+          \"IndexStatus\": \"ACTIVE\",
+          \"ProvisionedReadCapacityAutoScalingSettings\": {
+            \"AutoScalingDisabled\": false,
+            \"AutoScalingRoleArn\": \"arn:test\",
+            \"MaximumUnits\": 20,
+            \"MinimumUnits\": 10,
+            \"ScalingPolicies\": [
+              {
+                \"PolicyName\": \"PolicyName\",
+                \"TargetTrackingScalingPolicyConfiguration\": {
+                  \"DisableScaleIn\": false,
+                  \"ScaleInCooldown\": 600,
+                  \"ScaleOutCooldown\": 600,
+                  \"TargetValue\": 70.0
+                }
+              }
+            ]
+          },
+          \"ProvisionedReadCapacityUnits\": 10,
+          \"ProvisionedWriteCapacityAutoScalingSettings\": {
+            \"AutoScalingDisabled\": false,
+            \"AutoScalingRoleArn\": \"arn:test\",
+            \"MaximumUnits\": 20,
+            \"MinimumUnits\": 10,
+            \"ScalingPolicies\": [
+              {
+                \"PolicyName\": \"PolicyName\",
+                \"TargetTrackingScalingPolicyConfiguration\": {
+                  \"DisableScaleIn\": true,
+                  \"ScaleInCooldown\": 600,
+                  \"ScaleOutCooldown\": 600,
+                  \"TargetValue\": 70.0
+                }
+              }
+            ]
+          },
+          \"ProvisionedWriteCapacityUnits\": 10
+        }
+      ],
+      \"ReplicaProvisionedReadCapacityAutoScalingSettings\": {
+        \"AutoScalingDisabled\": true,
+        \"AutoScalingRoleArn\": \"arn:test\",
+        \"MaximumUnits\": 20,
+        \"MinimumUnits\": 10,
+        \"ScalingPolicies\": [
+          {
+            \"PolicyName\": \"policy\",
+            \"TargetTrackingScalingPolicyConfiguration\": {
+              \"DisableScaleIn\": false,
+              \"ScaleInCooldown\": 600,
+              \"ScaleOutCooldown\": 600,
+              \"TargetValue\": 70.0
+            }
+          }
+        ]
+      },
+      \"ReplicaProvisionedReadCapacityUnits\": 10,
+      \"ReplicaProvisionedWriteCapacityAutoScalingSettings\": {
+        \"AutoScalingDisabled\": false,
+        \"AutoScalingRoleArn\": \"arn:test\",
+        \"MaximumUnits\": 20,
+        \"MinimumUnits\": 10,
+        \"ScalingPolicies\": [
+          {
+            \"PolicyName\": \"policy\",
+            \"TargetTrackingScalingPolicyConfiguration\": {
+              \"DisableScaleIn\": false,
+              \"ScaleInCooldown\": 600,
+              \"ScaleOutCooldown\": 600,
+              \"TargetValue\": 70.0
+            }
+          }
+        ]
+      },
+      \"ReplicaProvisionedWriteCapacityUnits\": 10,
+      \"ReplicaStatus\": \"ACTIVE\"
+    }
+  ]
+}",
+    input_tests(Response, Tests).
+
+describe_global_table_settings_output_tests(_) ->
+    Tests =
+    [?_ddb_test(
+        {"DescribeGlobalTableSettings example response", "
+{
+  \"GlobalTableName\": \"Thread\",
+  \"ReplicaSettings\": [
+    {
+      \"RegionName\": \"us-west-2\",
+      \"ReplicaBillingModeSummary\": {
+        \"BillingMode\": \"PROVISIONED\",
+        \"LastUpdateToPayPerRequestDateTime\": 1578092745.455
+      },
+      \"ReplicaGlobalSecondaryIndexSettings\": [
+        {
+          \"IndexName\": \"id-index\",
+          \"IndexStatus\": \"ACTIVE\",
+          \"ProvisionedReadCapacityAutoScalingSettings\": {
+            \"AutoScalingDisabled\": false,
+            \"AutoScalingRoleArn\": \"arn:test\",
+            \"MaximumUnits\": 20,
+            \"MinimumUnits\": 10,
+            \"ScalingPolicies\": [
+              {
+                \"PolicyName\": \"PolicyName\",
+                \"TargetTrackingScalingPolicyConfiguration\": {
+                  \"DisableScaleIn\": false,
+                  \"ScaleInCooldown\": 600,
+                  \"ScaleOutCooldown\": 600,
+                  \"TargetValue\": 70.0
+                }
+              }
+            ]
+          },
+          \"ProvisionedReadCapacityUnits\": 10,
+          \"ProvisionedWriteCapacityAutoScalingSettings\": {
+            \"AutoScalingDisabled\": false,
+            \"AutoScalingRoleArn\": \"arn:test\",
+            \"MaximumUnits\": 20,
+            \"MinimumUnits\": 10,
+            \"ScalingPolicies\": [
+              {
+                \"PolicyName\": \"PolicyName\",
+                \"TargetTrackingScalingPolicyConfiguration\": {
+                  \"DisableScaleIn\": false,
+                  \"ScaleInCooldown\": 600,
+                  \"ScaleOutCooldown\": 600,
+                  \"TargetValue\": 70.0
+                }
+              }
+            ]
+          },
+          \"ProvisionedWriteCapacityUnits\": 10
+        }
+      ],
+      \"ReplicaProvisionedReadCapacityAutoScalingSettings\": {
+        \"AutoScalingDisabled\": false,
+        \"AutoScalingRoleArn\": \"arn:test\",
+        \"MaximumUnits\": 20,
+        \"MinimumUnits\": 10,
+        \"ScalingPolicies\": [
+          {
+            \"PolicyName\": \"PolicyName\",
+            \"TargetTrackingScalingPolicyConfiguration\": {
+              \"DisableScaleIn\": false,
+              \"ScaleInCooldown\": 600,
+              \"ScaleOutCooldown\": 600,
+              \"TargetValue\": 70.0
+            }
+          }
+        ]
+      },
+      \"ReplicaProvisionedReadCapacityUnits\": 10,
+      \"ReplicaProvisionedWriteCapacityAutoScalingSettings\": {
+        \"AutoScalingDisabled\": false,
+        \"AutoScalingRoleArn\": \"arn:test\",
+        \"MaximumUnits\": 20,
+        \"MinimumUnits\": 10,
+        \"ScalingPolicies\": [
+          {
+            \"PolicyName\": \"PolicyName\",
+            \"TargetTrackingScalingPolicyConfiguration\": {
+              \"DisableScaleIn\": false,
+              \"ScaleInCooldown\": 600,
+              \"ScaleOutCooldown\": 600,
+              \"TargetValue\": 70.0
+            }
+          }
+        ]
+      },
+      \"ReplicaProvisionedWriteCapacityUnits\": 10,
+      \"ReplicaStatus\": \"ACTIVE\"
+    }
+  ]
+}", {ok, [#ddb2_replica_settings_description{region_name = <<"us-west-2">>,
+                                             replica_billing_mode_summary = #ddb2_billing_mode_summary{billing_mode = provisioned,
+                                                                                                       last_update_to_pay_per_request_date_time = 1578092745.455},
+                                             replica_global_secondary_index_settings = [#ddb2_replica_global_secondary_index_settings_description{index_name = <<"id-index">>,
+                                                                                                                                                  index_status = active,
+                                                                                                                                                  provisioned_read_capacity_auto_scaling_settings = #ddb2_auto_scaling_settings_description{auto_scaling_disabled = false,
+                                                                                                                                                                                                                                            auto_scaling_role_arn = <<"arn:test">>,
+                                                                                                                                                                                                                                            maximum_units = 20,
+                                                                                                                                                                                                                                            minimum_units = 10,
+                                                                                                                                                                                                                                            scaling_policies = [#ddb2_auto_scaling_policy_description{policy_name = <<"PolicyName">>,
+                                                                                                                                                                                                                                                                                                      target_tracking_scaling_policy_configuration = #ddb2_auto_scaling_target_tracking_scaling_policy_configuration_description{disable_scale_in = false,
+                                                                                                                                                                                                                                                                                                                                                                                                                                 scale_in_cooldown = 600,
+                                                                                                                                                                                                                                                                                                                                                                                                                                 scale_out_cooldown = 600,
+                                                                                                                                                                                                                                                                                                                                                                                                                                 target_value = 70.0}}]},
+                                                                                                                                                  provisioned_read_capacity_units = 10,
+                                                                                                                                                  provisioned_write_capacity_auto_scaling_settings = #ddb2_auto_scaling_settings_description{auto_scaling_disabled = false,
+                                                                                                                                                                                                                                             auto_scaling_role_arn = <<"arn:test">>,
+                                                                                                                                                                                                                                             maximum_units = 20,
+                                                                                                                                                                                                                                             minimum_units = 10,
+                                                                                                                                                                                                                                             scaling_policies = [#ddb2_auto_scaling_policy_description{policy_name = <<"PolicyName">>,
+                                                                                                                                                                                                                                                                                                      target_tracking_scaling_policy_configuration = #ddb2_auto_scaling_target_tracking_scaling_policy_configuration_description{disable_scale_in = false,
+                                                                                                                                                                                                                                                                                                                                                                                                                                 scale_in_cooldown = 600,
+                                                                                                                                                                                                                                                                                                                                                                                                                                 scale_out_cooldown = 600,
+                                                                                                                                                                                                                                                                                                                                                                                                                                 target_value = 70.0}}]},
+                                                                                                                                                  provisioned_write_capacity_units = 10}],
+                                             replica_provisioned_read_capacity_auto_scaling_settings = #ddb2_auto_scaling_settings_description{auto_scaling_disabled = false,
+                                                                                                                                               auto_scaling_role_arn = <<"arn:test">>,
+                                                                                                                                               maximum_units = 20,
+                                                                                                                                               minimum_units = 10,
+                                                                                                                                               scaling_policies = [#ddb2_auto_scaling_policy_description{policy_name = <<"PolicyName">>,
+                                                                                                                                                                                                         target_tracking_scaling_policy_configuration = #ddb2_auto_scaling_target_tracking_scaling_policy_configuration_description{disable_scale_in = false,
+                                                                                                                                                                                                                                                                                                                                    scale_in_cooldown = 600,
+                                                                                                                                                                                                                                                                                                                                    scale_out_cooldown = 600,
+                                                                                                                                                                                                                                                                                                                                    target_value = 70.0}}]},
+                                             replica_provisioned_read_capacity_units = 10,
+                                             replica_provisioned_write_capacity_auto_scaling_settings = #ddb2_auto_scaling_settings_description{auto_scaling_disabled = false,
+                                                                                                                                                auto_scaling_role_arn = <<"arn:test">>,
+                                                                                                                                                maximum_units = 20,
+                                                                                                                                                minimum_units = 10,
+                                                                                                                                                scaling_policies = [#ddb2_auto_scaling_policy_description{policy_name = <<"PolicyName">>,
+                                                                                                                                                                                                          target_tracking_scaling_policy_configuration = #ddb2_auto_scaling_target_tracking_scaling_policy_configuration_description{disable_scale_in = false,
+                                                                                                                                                                                                                                                                                                                                     scale_in_cooldown = 600,
+                                                                                                                                                                                                                                                                                                                                     scale_out_cooldown = 600,
+                                                                                                                                                                                                                                                                                                                                     target_value = 70.0}}]},
+                                             replica_provisioned_write_capacity_units = 10,
+                                             replica_status = active}]}})],
+    output_tests(?_f(erlcloud_ddb2:describe_global_table_settings(<<"Thread">>)), Tests).
 
 %% DescribeTable test based on the API examples:
 %% http://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_DescribeTable.html
@@ -2461,6 +3020,7 @@ describe_table_input_tests(_) ->
             }
         ],
         \"CreationDateTime\": 1.363729002358E9,
+        \"GlobalTableVersion\": \"2019.11.21\",
         \"ItemCount\": 0,
         \"KeySchema\": [
             {
@@ -2492,6 +3052,16 @@ describe_table_input_tests(_) ->
                 }
             }
         ],
+        \"Replicas\": [
+            {
+                \"RegionName\": \"us-west-2\",
+                \"ReplicaStatus\": \"ACTIVE\",
+            },
+            {
+                \"RegionName\": \"eu-west-2\",
+                \"ReplicaStatus\": \"ACTIVE\"
+            }
+        ],
         \"ProvisionedThroughput\": {
             \"NumberOfDecreasesToday\": 0,
             \"ReadCapacityUnits\": 5,
@@ -2505,7 +3075,7 @@ describe_table_input_tests(_) ->
     input_tests(Response, Tests).
 
 describe_table_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"DescribeTable example response", "
 {
@@ -2554,8 +3124,9 @@ describe_table_output_tests(_) ->
                     \"WriteCapacityUnits\": 4
                 }
             }
-        ],          
+        ],
         \"CreationDateTime\": 1.363729002358E9,
+        \"GlobalTableVersion\": \"2019.11.21\",
         \"ItemCount\": 0,
         \"KeySchema\": [
             {
@@ -2587,6 +3158,16 @@ describe_table_output_tests(_) ->
                 }
             }
         ],
+        \"Replicas\": [
+            {
+                \"RegionName\": \"us-west-2\",
+                \"ReplicaStatus\": \"ACTIVE\",
+            },
+            {
+                \"RegionName\": \"eu-west-2\",
+                \"ReplicaStatus\": \"ACTIVE\"
+            }
+        ],
         \"ProvisionedThroughput\": {
             \"NumberOfDecreasesToday\": 0,
             \"ReadCapacityUnits\": 5,
@@ -2594,7 +3175,8 @@ describe_table_output_tests(_) ->
         },
         \"TableName\": \"Thread\",
         \"TableSizeBytes\": 0,
-        \"TableStatus\": \"ACTIVE\"
+        \"TableStatus\": \"ACTIVE\",
+        \"DeletionProtectionEnabled\": true
     }
 }",
              {ok, #ddb2_table_description
@@ -2602,6 +3184,7 @@ describe_table_output_tests(_) ->
                                         {<<"LastPostDateTime">>, s},
                                         {<<"Subject">>, s}],
                creation_date_time = 1363729002.358,
+               global_table_version = <<"2019.11.21">>,
                item_count = 0,
                key_schema = {<<"ForumName">>, <<"Subject">>},
                local_secondary_indexes =
@@ -2611,7 +3194,7 @@ describe_table_output_tests(_) ->
                        item_count = 0,
                        key_schema = {<<"ForumName">>, <<"LastPostDateTime">>},
                        projection = keys_only}],
-               global_secondary_indexes = 
+               global_secondary_indexes =
                    [#ddb2_global_secondary_index_description{
                        index_name = <<"SubjectIndex">>,
                        index_size_bytes = 2048,
@@ -2625,21 +3208,236 @@ describe_table_output_tests(_) ->
                           number_of_decreases_today = 2,
                           read_capacity_units = 3,
                           write_capacity_units = 4}
-                    }],                       
-               provisioned_throughput = 
+                    }],
+               provisioned_throughput =
                    #ddb2_provisioned_throughput_description{
                       last_decrease_date_time = undefined,
                       last_increase_date_time = undefined,
                       number_of_decreases_today = 0,
                       read_capacity_units = 5,
                       write_capacity_units = 5},
+               replicas = [#ddb2_replica_description{region_name = <<"us-west-2">>,
+                                                     replica_status = active},
+                           #ddb2_replica_description{region_name = <<"eu-west-2">>,
+                                                     replica_status = active}],
                table_name = <<"Thread">>,
                table_size_bytes = 0,
-               table_status = active}}})
+               table_status = active,
+               deletion_protection_enabled = true}}})
         ],
-    
+
     output_tests(?_f(erlcloud_ddb2:describe_table(<<"name">>)), Tests).
 
+
+%% DescribeTableReplicaAutoScaling test based on API request/response syntax
+describe_table_replica_auto_scaling_input_tests(_) ->
+    Tests =
+        [?_ddb_test(
+            {"DescribeTableReplicaAutoScaling example request",
+             ?_f(erlcloud_ddb2:describe_table_replica_auto_scaling(<<"Thread">>)), "
+{
+    \"TableName\":\"Thread\"
+}"
+             })],
+    Response = "
+{
+  \"TableAutoScalingDescription\": {
+    \"Replicas\": [
+      {
+        \"GlobalSecondaryIndexes\": [
+          {
+            \"IndexName\": \"id-index\",
+            \"IndexStatus\": \"ACTIVE\",
+            \"ProvisionedReadCapacityAutoScalingSettings\": {
+              \"AutoScalingDisabled\": false,
+              \"AutoScalingRoleArn\": \"arn:test\",
+              \"MaximumUnits\": 20,
+              \"MinimumUnits\": 10,
+              \"ScalingPolicies\": [
+                {
+                  \"PolicyName\": \"PolicyName\",
+                  \"TargetTrackingScalingPolicyConfiguration\": {
+                    \"DisableScaleIn\": false,
+                    \"ScaleInCooldown\": 600,
+                    \"ScaleOutCooldown\": 600,
+                    \"TargetValue\": 70.0
+                  }
+                }
+              ]
+            },
+            \"ProvisionedWriteCapacityAutoScalingSettings\": {
+              \"AutoScalingDisabled\": false,
+              \"AutoScalingRoleArn\": \"arn:test\",
+              \"MaximumUnits\": 20,
+              \"MinimumUnits\": 10,
+              \"ScalingPolicies\": [
+                {
+                  \"PolicyName\": \"PolicyName\",
+                  \"TargetTrackingScalingPolicyConfiguration\": {
+                    \"DisableScaleIn\": false,
+                    \"ScaleInCooldown\": 600,
+                    \"ScaleOutCooldown\": 600,
+                    \"TargetValue\": 70.0
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        \"RegionName\": \"us-west-2\",
+        \"ReplicaProvisionedReadCapacityAutoScalingSettings\": {
+          \"AutoScalingDisabled\": false,
+          \"AutoScalingRoleArn\": \"arn:test\",
+          \"MaximumUnits\": 20,
+          \"MinimumUnits\": 10,
+          \"ScalingPolicies\": [
+            {
+              \"PolicyName\": \"PolicyName\",
+              \"TargetTrackingScalingPolicyConfiguration\": {
+                \"DisableScaleIn\": false,
+                \"ScaleInCooldown\": 600,
+                \"ScaleOutCooldown\": 600,
+                \"TargetValue\": 70.0
+              }
+            }
+          ]
+        },
+        \"ReplicaProvisionedWriteCapacityAutoScalingSettings\": {
+          \"AutoScalingDisabled\": false,
+          \"AutoScalingRoleArn\": \"arn:test\",
+          \"MaximumUnits\": 20,
+          \"MinimumUnits\": 10,
+          \"ScalingPolicies\": [
+            {
+              \"PolicyName\": \"PolicyName\",
+              \"TargetTrackingScalingPolicyConfiguration\": {
+                \"DisableScaleIn\": false,
+                \"ScaleInCooldown\": 600,
+                \"ScaleOutCooldown\": 600,
+                \"TargetValue\": 70.0
+              }
+            }
+          ]
+        },
+        \"ReplicaStatus\": \"ACTIVE\"
+      }
+    ],
+    \"TableName\": \"Thread\",
+    \"TableStatus\": \"ACTIVE\"
+  }
+}",
+        input_tests(Response, Tests).
+
+describe_table_replica_auto_scaling_output_tests(_) ->
+    AutoScalingSettings = #ddb2_auto_scaling_settings_description{auto_scaling_disabled = false,
+                                                                  auto_scaling_role_arn = <<"arn:test">>,
+                                                                  maximum_units = 20,
+                                                                  minimum_units = 10,
+                                                                  scaling_policies = [#ddb2_auto_scaling_policy_description{policy_name = <<"PolicyName">>,
+                                                                                                                            target_tracking_scaling_policy_configuration = #ddb2_auto_scaling_target_tracking_scaling_policy_configuration_description{disable_scale_in = false,
+                                                                                                                                                                                                                                                       scale_in_cooldown = 600,
+                                                                                                                                                                                                                                                       scale_out_cooldown = 600,
+                                                                                                                                                                                                                                                       target_value = 70.0}}]},
+    Tests =
+    [?_ddb_test(
+        {"DescribeGlobalTableSettings example response", "
+{
+  \"TableAutoScalingDescription\": {
+    \"Replicas\": [
+      {
+        \"GlobalSecondaryIndexes\": [
+          {
+            \"IndexName\": \"id-index\",
+            \"IndexStatus\": \"ACTIVE\",
+            \"ProvisionedReadCapacityAutoScalingSettings\": {
+              \"AutoScalingDisabled\": false,
+              \"AutoScalingRoleArn\": \"arn:test\",
+              \"MaximumUnits\": 20,
+              \"MinimumUnits\": 10,
+              \"ScalingPolicies\": [
+                {
+                  \"PolicyName\": \"PolicyName\",
+                  \"TargetTrackingScalingPolicyConfiguration\": {
+                    \"DisableScaleIn\": false,
+                    \"ScaleInCooldown\": 600,
+                    \"ScaleOutCooldown\": 600,
+                    \"TargetValue\": 70.0
+                  }
+                }
+              ]
+            },
+            \"ProvisionedWriteCapacityAutoScalingSettings\": {
+              \"AutoScalingDisabled\": false,
+              \"AutoScalingRoleArn\": \"arn:test\",
+              \"MaximumUnits\": 20,
+              \"MinimumUnits\": 10,
+              \"ScalingPolicies\": [
+                {
+                  \"PolicyName\": \"PolicyName\",
+                  \"TargetTrackingScalingPolicyConfiguration\": {
+                    \"DisableScaleIn\": false,
+                    \"ScaleInCooldown\": 600,
+                    \"ScaleOutCooldown\": 600,
+                    \"TargetValue\": 70.0
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        \"RegionName\": \"us-west-2\",
+        \"ReplicaProvisionedReadCapacityAutoScalingSettings\": {
+          \"AutoScalingDisabled\": false,
+          \"AutoScalingRoleArn\": \"arn:test\",
+          \"MaximumUnits\": 20,
+          \"MinimumUnits\": 10,
+          \"ScalingPolicies\": [
+            {
+              \"PolicyName\": \"PolicyName\",
+              \"TargetTrackingScalingPolicyConfiguration\": {
+                \"DisableScaleIn\": false,
+                \"ScaleInCooldown\": 600,
+                \"ScaleOutCooldown\": 600,
+                \"TargetValue\": 70.0
+              }
+            }
+          ]
+        },
+        \"ReplicaProvisionedWriteCapacityAutoScalingSettings\": {
+          \"AutoScalingDisabled\": false,
+          \"AutoScalingRoleArn\": \"arn:test\",
+          \"MaximumUnits\": 20,
+          \"MinimumUnits\": 10,
+          \"ScalingPolicies\": [
+            {
+              \"PolicyName\": \"PolicyName\",
+              \"TargetTrackingScalingPolicyConfiguration\": {
+                \"DisableScaleIn\": false,
+                \"ScaleInCooldown\": 600,
+                \"ScaleOutCooldown\": 600,
+                \"TargetValue\": 70.0
+              }
+            }
+          ]
+        },
+        \"ReplicaStatus\": \"ACTIVE\"
+      }
+    ],
+    \"TableName\": \"Thread\",
+    \"TableStatus\": \"ACTIVE\"
+  }
+}",
+         {ok, #ddb2_table_auto_scaling_description{replicas = [#ddb2_replica_auto_scaling_description{global_secondary_indexes = [#ddb2_replica_global_secondary_index_auto_scaling_description{index_name = <<"id-index">>,
+                                                                                                                                                                                                index_status = active,
+                                                                                                                                                                                                provisioned_read_capacity_auto_scaling_settings = AutoScalingSettings,
+                                                                                                                                                                                                provisioned_write_capacity_auto_scaling_settings = AutoScalingSettings}],
+                                                                                                      region_name = <<"us-west-2">>,
+                                                                                                      replica_provisioned_read_capacity_auto_scaling_settings = AutoScalingSettings,
+                                                                                                      replica_provisioned_write_capacity_auto_scaling_settings = AutoScalingSettings,
+                                                                                                      replica_status = active}],
+                                                    table_name = <<"Thread">>,
+                                                    table_status = active}}})],
+    output_tests(?_f(erlcloud_ddb2:describe_table_replica_auto_scaling(<<"Thread">>)), Tests).
 
 %% DescribeTimeToLive test
 describe_time_to_live_input_tests(_) ->
@@ -2652,7 +3450,7 @@ describe_time_to_live_input_tests(_) ->
 }"
               })],
       Response = "
-{          
+{
     \"TimeToLiveDescription\": {
         \"AttributeName\": \"ExpirationTime\",
         \"TimeToLiveStatus\": \"ENABLED\"
@@ -2662,7 +3460,7 @@ describe_time_to_live_input_tests(_) ->
 
 %% DescribeTimeToLive test:
 describe_time_to_live_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"DescribeTimeToLive example response with enabled TTL", "
 {
@@ -2737,7 +3535,7 @@ get_item_input_tests(_) ->
         [?_ddb_test(
             {"GetItem example request, with fully specified keys",
              ?_f(erlcloud_ddb2:get_item(<<"Thread">>,
-                                       [{<<"ForumName">>, {s, <<"Amazon DynamoDB">>}}, 
+                                       [{<<"ForumName">>, {s, <<"Amazon DynamoDB">>}},
                                         {<<"Subject">>, {s, <<"How do I update multiple items?">>}}],
                                        [{attributes_to_get, [<<"LastPostDateTime">>, <<"Message">>, <<"Tags">>]},
                                         consistent_read,
@@ -2748,7 +3546,7 @@ get_item_input_tests(_) ->
              Example1Response}),
          ?_ddb_test(
             {"GetItem example request, with inferred key types",
-             ?_f(erlcloud_ddb2:get_item(<<"Thread">>, 
+             ?_f(erlcloud_ddb2:get_item(<<"Thread">>,
                                        [{<<"ForumName">>, "Amazon DynamoDB"},
                                         {<<"Subject">>, <<"How do I update multiple items?">>}],
                                        [{attributes_to_get, [<<"LastPostDateTime">>, <<"Message">>, <<"Tags">>]},
@@ -2810,7 +3608,7 @@ get_item_input_tests(_) ->
     input_tests(Response, Tests).
 
 get_item_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"GetItem example response", "
 {
@@ -2869,19 +3667,19 @@ get_item_output_tests(_) ->
                              {<<"empty_map">>, []}],
                     consumed_capacity = undefined}}}),
          ?_ddb_test(
-            {"GetItem item not found", 
+            {"GetItem item not found",
              "{}",
              {ok, #ddb2_get_item{item = undefined}}}),
          ?_ddb_test(
-            {"GetItem no attributes returned", 
+            {"GetItem no attributes returned",
              "{\"Item\":{}}",
              {ok, #ddb2_get_item{item = []}}})
         ],
-    
+
     output_tests(?_f(erlcloud_ddb2:get_item(<<"table">>, {<<"k">>, <<"v">>}, [{out, record}])), Tests).
 
 get_item_output_typed_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"GetItem typed test all attribute types", "
 {\"Item\":
@@ -2914,7 +3712,7 @@ get_item_output_typed_tests(_) ->
                              {<<"empty_map">>, {m, []}}],
                     consumed_capacity = undefined}}})
         ],
-    
+
     output_tests(?_f(erlcloud_ddb2:get_item(
                        <<"table">>, {<<"k">>, <<"v">>}, [{out, typed_record}])), Tests).
 
@@ -3001,7 +3799,7 @@ list_global_tables_input_tests(_) ->
             }),
          ?_ddb_test(
             {"ListGlobalTables empty request",
-             ?_f(erlcloud_ddb2:list_global_tables()), 
+             ?_f(erlcloud_ddb2:list_global_tables()),
              "{}"
             })
 
@@ -3009,22 +3807,22 @@ list_global_tables_input_tests(_) ->
 
     Response = "
 {
-   \"GlobalTables\": [ 
-      { 
+   \"GlobalTables\": [
+      {
          \"GlobalTableName\": \"Forum\",
-         \"ReplicationGroup\": [ 
-            { 
+         \"ReplicationGroup\": [
+            {
                \"RegionName\": \"us-west-2\"
-            },{ 
+            },{
                \"RegionName\": \"us-east-1\"
             }
          ]
-      },{ 
+      },{
          \"GlobalTableName\": \"Thread\",
-         \"ReplicationGroup\": [ 
-            { 
+         \"ReplicationGroup\": [
+            {
                \"RegionName\": \"us-east-1\"
-            },{ 
+            },{
                \"RegionName\": \"eu-west-1\"
             }
          ]
@@ -3036,26 +3834,26 @@ list_global_tables_input_tests(_) ->
 
 %% ListGlobalTables output test:
 list_global_tables_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"ListGlobalTables example response", "
 {
-   \"GlobalTables\": [ 
-      { 
+   \"GlobalTables\": [
+      {
          \"GlobalTableName\": \"Forum\",
-         \"ReplicationGroup\": [ 
-            { 
+         \"ReplicationGroup\": [
+            {
                \"RegionName\": \"us-west-2\"
-            },{ 
+            },{
                \"RegionName\": \"us-east-1\"
             }
          ]
-      },{ 
+      },{
          \"GlobalTableName\": \"Thread\",
-         \"ReplicationGroup\": [ 
-            { 
+         \"ReplicationGroup\": [
+            {
                \"RegionName\": \"us-east-1\"
-            },{ 
+            },{
                \"RegionName\": \"eu-west-1\"
             }
          ]
@@ -3074,7 +3872,7 @@ list_global_tables_output_tests(_) ->
                                   replication_group = [#ddb2_replica{region_name = <<"us-east-1">>},
                                                        #ddb2_replica{region_name = <<"eu-west-1">>}]}]}}})
         ],
-    
+
     output_tests(?_f(erlcloud_ddb2:list_global_tables([{out, record}])), Tests).
 
 %% ListTables test based on the API examples:
@@ -3091,7 +3889,7 @@ list_tables_input_tests(_) ->
             }),
          ?_ddb_test(
             {"ListTables empty request",
-             ?_f(erlcloud_ddb2:list_tables()), 
+             ?_f(erlcloud_ddb2:list_tables()),
              "{}"
             })
 
@@ -3105,7 +3903,7 @@ list_tables_input_tests(_) ->
     input_tests(Response, Tests).
 
 list_tables_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"ListTables example response", "
 {
@@ -3116,7 +3914,7 @@ list_tables_output_tests(_) ->
               {last_evaluated_table_name = <<"Thread">>,
                table_names = [<<"Forum">>, <<"Reply">>, <<"Thread">>]}}})
         ],
-    
+
     output_tests(?_f(erlcloud_ddb2:list_tables([{out, record}])), Tests).
 
 %% ListTagsOfResource test based on the API:
@@ -3149,7 +3947,7 @@ list_tags_of_resource_input_tests(_) ->
     input_tests(Response, Tests).
 
 list_tags_of_resource_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"ListTagsOfResource example response", "
 {
@@ -3170,7 +3968,7 @@ list_tags_of_resource_output_tests(_) ->
                tags = [{<<"example_key1">>, <<"example_value1">>},
                        {<<"example_key2">>, <<"example_value2">>}]}}})
         ],
-    
+
     output_tests(?_f(erlcloud_ddb2:list_tags_of_resource(<<"arn:aws:dynamodb:us-east-1:111122223333:table/Forum">>,
                                                          [{out, record}])),
                      Tests).
@@ -3181,7 +3979,7 @@ put_item_input_tests(_) ->
     Tests =
         [?_ddb_test(
             {"PutItem example request",
-             ?_f(erlcloud_ddb2:put_item(<<"Thread">>, 
+             ?_f(erlcloud_ddb2:put_item(<<"Thread">>,
                                        [{<<"LastPostedBy">>, <<"fred@example.com">>},
                                         {<<"ForumName">>, <<"Amazon DynamoDB">>},
                                         {<<"LastPostDateTime">>, <<"201303190422">>},
@@ -3223,7 +4021,7 @@ put_item_input_tests(_) ->
             }),
          ?_ddb_test(
             {"PutItem float inputs",
-             ?_f(erlcloud_ddb2:put_item(<<"Thread">>, 
+             ?_f(erlcloud_ddb2:put_item(<<"Thread">>,
                                        [{<<"typed float">>, {n, 1.2}},
                                         {<<"untyped float">>, 3.456},
                                         {<<"mixed set">>, {ns, [7.8, 9.0, 10]}}],
@@ -3334,7 +4132,7 @@ put_item_input_tests(_) ->
     input_tests(Response, Tests).
 
 put_item_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"PutItem example response", "
 {
@@ -3431,7 +4229,7 @@ put_item_output_tests(_) ->
                                   ]
                      }}})
         ],
-    
+
     output_tests(?_f(erlcloud_ddb2:put_item(<<"table">>, [], [{out, record}])), Tests).
 
 %% Query test based on the API examples:
@@ -3571,7 +4369,7 @@ q_input_tests(_) ->
     input_tests(Response, Tests).
 
 q_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"Query example 1 response", "
 {
@@ -3667,12 +4465,12 @@ q_output_tests(_) ->
     }
 }",
              {ok, #ddb2_q{count = 17,
-                         last_evaluated_key = 
+                         last_evaluated_key =
                              [{<<"ForumName">>, {s, <<"Amazon DynamoDB">>}},
                               {<<"Subject">>, {s, <<"Exclusive key can have 3 parts">>}},                                                        {<<"LastPostDateTime">>, {s, <<"20130102054211">>}}]
                          }}})
         ],
-    
+
     output_tests(?_f(erlcloud_ddb2:q(<<"table">>, [{<<"k">>, <<"v">>, eq}], [{out, record}])), Tests).
 
 %% RestoreTableFromBackup test based on the API examples:
@@ -4196,7 +4994,7 @@ scan_input_tests(_) ->
             }),
          ?_ddb_test(
             {"Scan example 2 request",
-             ?_f(erlcloud_ddb2:scan(<<"Reply">>, 
+             ?_f(erlcloud_ddb2:scan(<<"Reply">>,
                                    [{scan_filter, [{<<"PostedBy">>, <<"joe@example.com">>, eq}]},
                                     {return_consumed_capacity, total}])), "
 {
@@ -4225,7 +5023,7 @@ scan_input_tests(_) ->
             }),
          ?_ddb_test(
             {"Scan exclusive start key",
-             ?_f(erlcloud_ddb2:scan(<<"Reply">>, 
+             ?_f(erlcloud_ddb2:scan(<<"Reply">>,
                                    [{exclusive_start_key, [{<<"ForumName">>, {s, <<"Amazon DynamoDB">>}},
                                                            {<<"LastPostDateTime">>, {n, 20130102054211}}]}])), "
 {
@@ -4369,7 +5167,7 @@ scan_input_tests(_) ->
     input_tests(Response, Tests).
 
 scan_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"Scan example 1 response", "
 {
@@ -4573,7 +5371,7 @@ scan_output_tests(_) ->
                                      {<<"LastPostDateTime">>, {n, 20130102054211}}],
                scanned_count = 4}}})
         ],
-    
+
     output_tests(?_f(erlcloud_ddb2:scan(<<"name">>, [{out, record}])), Tests).
 
 %% TagResource test based on the API:
@@ -4604,7 +5402,7 @@ tag_resource_input_tests(_) ->
     input_tests(Response, Tests).
 
 tag_resource_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"ListTagsOfResource example response", "",
              ok})
@@ -4613,6 +5411,417 @@ tag_resource_output_tests(_) ->
                                                 [{<<"example_key1">>, <<"example_value1">>},
                                                  {<<"example_key2">>, <<"example_value2">>}])),
                      Tests).
+
+%% TransactGetItem test using synthetic data (there are no AWS provided examples):
+%% https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_TransactGetItems.html
+transact_get_items_input_tests(_) ->
+    Tests =
+        [?_ddb_test(
+            {"TransactGetItems request",
+             ?_f(erlcloud_ddb2:transact_get_items(
+                [{get, {<<"PersonalInfo">>, [{<<"Name">>, {s, <<"John Smith">>}},
+                                             {<<"DOB">>, {s, <<"11/11/2011">>}}]}},
+                 {get, {<<"EmployeeRecord">>, [{<<"Name">>, {s, <<"John Smith">>}},
+                                               {<<"DOH">>, {s, <<"11/11/2018">>}}]}}],
+                 [{return_consumed_capacity, total}])), "
+{
+    \"TransactItems\": [
+        {\"Get\": {
+            \"Key\": {
+                \"Name\": {
+                    \"S\": \"John Smith\"
+                },
+                \"DOB\": {
+                    \"S\": \"11/11/2011\"
+                }
+            },
+            \"TableName\": \"PersonalInfo\"
+        }},
+        {\"Get\": {
+            \"Key\": {
+                \"Name\": {
+                    \"S\": \"John Smith\"
+                },
+                \"DOH\": {
+                    \"S\": \"11/11/2018\"
+                }
+            },
+            \"TableName\": \"EmployeeRecord\"
+        }}
+    ],
+    \"ReturnConsumedCapacity\": \"TOTAL\"
+}"
+            })
+        ],
+
+    Response = "
+{
+    \"ConsumedCapacity\": [
+        {
+            \"TableName\": \"PersonalInfo\",
+            \"CapacityUnits\": 2
+        },
+        {
+            \"TableName\": \"EmployeeRecord\",
+            \"CapacityUnits\": 3
+        }
+    ],
+    \"Responses\": [
+        {\"Item\": {
+            \"Name\":{
+                \"S\":\"John Smith\"
+            },
+            \"DOB\":{
+                \"S\":\"11/11/2011\"
+            },
+            \"Creation_ts\":{
+                \"N\":\"1500000000\"
+            }
+        }},
+        {\"Item\": {
+            \"Name\":{
+                \"S\":\"John Smith\"
+            },
+            \"DOH\":{
+                \"S\":\"11/11/2018\"
+            },
+            \"Id\":{
+                \"N\":\"19\"
+            }
+        }}
+    ]
+}",
+    input_tests(Response, Tests).
+
+transact_get_items_output_tests(_) ->
+    Tests =
+        [?_ddb_test(
+            {"TransactGetItems response only", "
+{
+    \"Responses\": [
+        {\"Item\": {
+            \"Name\":{
+                \"S\":\"John Smith\"
+            },
+            \"DOB\":{
+                \"S\":\"11/11/2011\"
+            },
+            \"Creation_ts\":{
+                \"N\":\"1500000000\"
+            }
+        }},
+        {\"Item\": {
+            \"Name\":{
+                \"S\":\"John Smith\"
+            },
+            \"DOH\":{
+                \"S\":\"11/11/2018\"
+            },
+            \"Id\":{
+                \"N\":\"19\"
+            }
+        }}
+    ]
+}",
+             {ok, #ddb2_transact_get_items{
+                 responses = [
+                     #ddb2_item_response{
+                        item = [
+                            {<<"Name">>, <<"John Smith">>},
+                            {<<"DOB">>, <<"11/11/2011">>},
+                            {<<"Creation_ts">>, 1500000000}
+                        ]
+                     },
+                     #ddb2_item_response{
+                        item = [
+                            {<<"Name">>, <<"John Smith">>},
+                            {<<"DOH">>, <<"11/11/2018">>},
+                            {<<"Id">>, 19}
+                        ]
+                     }
+                 ]
+             }}}),
+         ?_ddb_test(
+            {"TransactGetItems consumed capacity", "
+{
+    \"ConsumedCapacity\": [
+        {
+            \"TableName\": \"PersonalInfo\",
+            \"CapacityUnits\": 2
+        },
+        {
+            \"TableName\": \"EmployeeRecord\",
+            \"CapacityUnits\": 3
+        }
+    ],
+    \"Responses\": [
+        {\"Item\": {
+            \"Name\":{
+                \"S\":\"John Smith\"
+            },
+            \"DOB\":{
+                \"S\":\"11/11/2011\"
+            },
+            \"Creation_ts\":{
+                \"N\":\"1500000000\"
+            }
+        }},
+        {\"Item\": {
+            \"Name\":{
+                \"S\":\"John Smith\"
+            },
+            \"DOH\":{
+                \"S\":\"11/11/2018\"
+            },
+            \"Id\":{
+                \"N\":\"19\"
+            }
+        }}
+    ]
+}",
+             {ok, #ddb2_transact_get_items{
+                 responses = [
+                     #ddb2_item_response{
+                        item = [
+                            {<<"Name">>, <<"John Smith">>},
+                            {<<"DOB">>, <<"11/11/2011">>},
+                            {<<"Creation_ts">>, 1500000000}
+                        ]
+                     },
+                     #ddb2_item_response{
+                        item = [
+                            {<<"Name">>, <<"John Smith">>},
+                            {<<"DOH">>, <<"11/11/2018">>},
+                            {<<"Id">>, 19}
+                        ]
+                     }
+                 ],
+                 consumed_capacity = [
+                     #ddb2_consumed_capacity{
+                        capacity_units = 2, table_name = <<"PersonalInfo">>
+                     },
+                     #ddb2_consumed_capacity{
+                        capacity_units = 3, table_name = <<"EmployeeRecord">>
+                     }
+                 ]
+             }}})
+        ],
+
+    output_tests(?_f(erlcloud_ddb2:transact_get_items([], [{out, record}])),
+            Tests).
+
+%% TransactWriteItems test using synthetic data (there are no AWS provided examples):
+%% https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_TransactWriteItems.html
+transact_write_items_input_tests(_) ->
+    Tests =
+        [?_ddb_test(
+            {"TransactWriteItems request",
+             ?_f(erlcloud_ddb2:transact_write_items(
+                 [{update, {
+                     <<"PersonalInfo">>,
+                     [{<<"Name">>, {s, <<"John Smith">>}}, {<<"DOB">>, {s, <<"11/11/2011">>}}],
+                     <<"SET eye_color = :c">>,
+                     [{expression_attribute_values, [{<<":c">>, <<"brown">>}]}]}},
+                  {condition_check, {
+                      <<"Scratchpad">>,
+                      [{<<"Name">>, {s, <<"John Smith">>}}, {<<"DOB">>, {s, <<"11/11/2011">>}}],
+                     [{condition_expression, <<"approved = :a">>},
+                      {expression_attribute_values, [{<<":a">>, <<"yes">>}]}]}},
+                  {delete, {<<"Scratchpad">>, [{<<"Name">>, {s, <<"John Smith">>}},
+                                               {<<"DOB">>, {s, <<"11/11/2011">>}}]}},
+                  {put, {<<"EmployeeRecord">>, [{<<"Name">>, {s, <<"John Smith">>}},
+                                                {<<"DOH">>, {s, <<"11/11/2018">>}}]}}],
+                 [{return_consumed_capacity, total},
+                  {return_item_collection_metrics, size}])), "
+{
+    \"TransactItems\": [
+        {\"Update\": {
+            \"Key\": {
+                \"Name\": {
+                    \"S\": \"John Smith\"
+                },
+                \"DOB\": {
+                    \"S\": \"11/11/2011\"
+                }
+            },
+            \"ExpressionAttributeValues\": {
+                \":c\": {\"S\": \"brown\"}
+            },
+            \"UpdateExpression\": \"SET eye_color = :c\",
+            \"TableName\": \"PersonalInfo\"
+        }},
+        {\"ConditionCheck\": {
+            \"Key\": {
+                \"Name\": {
+                    \"S\": \"John Smith\"
+                },
+                \"DOB\": {
+                    \"S\": \"11/11/2011\"
+                }
+            },
+            \"ExpressionAttributeValues\": {
+                \":a\": {\"S\": \"yes\"}
+            },
+            \"ConditionExpression\": \"approved = :a\",
+            \"TableName\": \"Scratchpad\"
+        }},
+        {\"Delete\": {
+            \"Key\": {
+                \"Name\": {
+                    \"S\": \"John Smith\"
+                },
+                \"DOB\": {
+                    \"S\": \"11/11/2011\"
+                }
+            },
+            \"TableName\": \"Scratchpad\"
+        }},
+        {\"Put\": {
+            \"Item\": {
+                \"Name\": {
+                    \"S\": \"John Smith\"
+                },
+                \"DOH\": {
+                    \"S\": \"11/11/2018\"
+                }
+            },
+            \"TableName\": \"EmployeeRecord\"
+        }}
+    ],
+    \"ReturnConsumedCapacity\": \"TOTAL\",
+    \"ReturnItemCollectionMetrics\": \"SIZE\"
+}"
+            })
+        ],
+
+    Response = "
+{
+    \"ItemCollectionMetrics\": {
+        \"PersonalInfo\": [{
+            \"ItemCollectionKey\": {
+                \"Name\": {
+                    \"S\": \"John Smith\"
+                }
+            },
+            \"SizeEstimateRangeGB\": [1, 2]
+        }],
+        \"Scratchpad\": [{
+            \"ItemCollectionKey\": {
+                \"Name\": {
+                    \"S\": \"John Smith\"
+                }
+            },
+            \"SizeEstimateRangeGB\": [0, 1]
+        }],
+        \"EmployeeRecord\": [{
+            \"ItemCollectionKey\": {
+                \"Name\": {
+                    \"S\": \"John Smith\"
+                }
+            },
+            \"SizeEstimateRangeGB\": [2, 3]
+        }]
+    },
+    \"ConsumedCapacity\": [
+        {
+            \"TableName\": \"PersonalInfo\",
+            \"CapacityUnits\": 3
+        },
+        {
+            \"TableName\": \"Scratchpad\",
+            \"CapacityUnits\": 4
+        },
+        {
+            \"TableName\": \"EmployeeRecord\",
+            \"CapacityUnits\": 3
+        }
+    ]
+}",
+    input_tests(Response, Tests).
+
+transact_write_items_output_tests(_) ->
+    Tests =
+        [?_ddb_test(
+            {"TransactWriteItems consumed capacity", "
+{
+    \"ConsumedCapacity\": [
+        {
+            \"TableName\": \"PersonalInfo\",
+            \"CapacityUnits\": 3
+        },
+        {
+            \"TableName\": \"Scratchpad\",
+            \"CapacityUnits\": 4
+        },
+        {
+            \"TableName\": \"EmployeeRecord\",
+            \"CapacityUnits\": 3
+        }
+    ]
+}",
+             {ok, #ddb2_transact_write_items{
+                 consumed_capacity = [
+                     #ddb2_consumed_capacity{
+                        capacity_units = 3, table_name = <<"PersonalInfo">>
+                     },
+                     #ddb2_consumed_capacity{
+                        capacity_units = 4, table_name = <<"Scratchpad">>
+                     },
+                     #ddb2_consumed_capacity{
+                        capacity_units = 3, table_name = <<"EmployeeRecord">>
+                     }
+                 ]
+             }}}),
+         ?_ddb_test(
+            {"TransactWriteItems item collection metrics", "
+{
+    \"ItemCollectionMetrics\": {
+        \"PersonalInfo\": [{
+            \"ItemCollectionKey\": {
+                \"Name\": {
+                    \"S\": \"John Smith\"
+                }
+            },
+            \"SizeEstimateRangeGB\": [1, 2]
+        }],
+        \"Scratchpad\": [{
+            \"ItemCollectionKey\": {
+                \"Name\": {
+                    \"S\": \"John Smith\"
+                }
+            },
+            \"SizeEstimateRangeGB\": [0, 1]
+        }],
+        \"EmployeeRecord\": [{
+            \"ItemCollectionKey\": {
+                \"Name\": {
+                    \"S\": \"John Smith\"
+                }
+            },
+            \"SizeEstimateRangeGB\": [2, 3]
+        }]
+    }
+}",
+             {ok, #ddb2_transact_write_items{
+                 item_collection_metrics = [
+                   {<<"PersonalInfo">>,
+                     [#ddb2_item_collection_metrics
+                      {item_collection_key = <<"John Smith">>,
+                       size_estimate_range_gb = {1, 2}}]},
+                   {<<"Scratchpad">>,
+                     [#ddb2_item_collection_metrics
+                      {item_collection_key = <<"John Smith">>,
+                       size_estimate_range_gb = {0, 1}}]},
+                   {<<"EmployeeRecord">>,
+                     [#ddb2_item_collection_metrics
+                      {item_collection_key = <<"John Smith">>,
+                       size_estimate_range_gb = {2, 3}}
+                     ]}]}}})
+        ],
+
+    output_tests(?_f(erlcloud_ddb2:transact_write_items([], [{out, record}])),
+            Tests).
+
 %% UntagResource test based on the API:
 %% https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_UntagResource.html
 untag_resource_input_tests(_) ->
@@ -4634,7 +5843,7 @@ untag_resource_input_tests(_) ->
     input_tests(Response, Tests).
 
 untag_resource_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"ListTagsOfResource example response", "",
              ok})
@@ -4701,7 +5910,7 @@ update_item_input_tests(_) ->
     Tests =
         [?_ddb_test(
             {"UpdateItem example request",
-             ?_f(erlcloud_ddb2:update_item(<<"Thread">>, 
+             ?_f(erlcloud_ddb2:update_item(<<"Thread">>,
                                           [{<<"ForumName">>, {s, <<"Amazon DynamoDB">>}},
                                            {<<"Subject">>, {s, <<"How do I update multiple items?">>}}],
                                           [{<<"LastPostedBy">>, {s, <<"alice@example.com">>}, put}],
@@ -4818,7 +6027,7 @@ update_item_input_tests(_) ->
     input_tests(Response, Tests).
 
 update_item_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"UpdateItem example response", "
 {
@@ -4859,7 +6068,7 @@ update_item_output_tests(_) ->
 }",
              {ok, []}})
         ],
-    
+
     output_tests(?_f(erlcloud_ddb2:update_item(<<"table">>, {<<"k">>, <<"v">>}, [])), Tests).
 
 %% UpdateGlobalTable input test:
@@ -4870,9 +6079,9 @@ update_global_table_input_tests(_) ->
                ?_f(erlcloud_ddb2:update_global_table(<<"Thread">>, [{create, {region_name, <<"us-east-1">>}}])), "
 {
    \"GlobalTableName\": \"Thread\",
-   \"ReplicaUpdates\": [ 
-      { 
-         \"Create\": { 
+   \"ReplicaUpdates\": [
+      {
+         \"Create\": {
             \"RegionName\": \"us-east-1\"
          }
       }
@@ -4881,12 +6090,12 @@ update_global_table_input_tests(_) ->
               }),
            ?_ddb_test(
               {"UpdateGlobalTable example request (delete)",
-               ?_f(erlcloud_ddb2:update_global_table(<<"Thread">>, {delete, #ddb2_replica{region_name = <<"us-west-2">>}})), "
+               ?_f(erlcloud_ddb2:update_global_table(<<"Thread">>, [{delete, #ddb2_replica{region_name = <<"us-west-2">>}}])), "
 {
    \"GlobalTableName\": \"Thread\",
-   \"ReplicaUpdates\": [ 
-      { 
-         \"Delete\": { 
+   \"ReplicaUpdates\": [
+      {
+         \"Delete\": {
             \"RegionName\": \"us-west-2\"
          }
       }
@@ -4899,13 +6108,13 @@ update_global_table_input_tests(_) ->
                                                                     {delete, {region_name, <<"eu-west-1">>}}])), "
 {
    \"GlobalTableName\": \"Thread\",
-   \"ReplicaUpdates\": [ 
-      { 
-         \"Create\": { 
+   \"ReplicaUpdates\": [
+      {
+         \"Create\": {
             \"RegionName\": \"us-east-1\"
          }
-      },{ 
-         \"Delete\": { 
+      },{
+         \"Delete\": {
             \"RegionName\": \"eu-west-1\"
          }
       }
@@ -4914,13 +6123,13 @@ update_global_table_input_tests(_) ->
               })],
       Response = "
 {
-   \"GlobalTableDescription\": { 
+   \"GlobalTableDescription\": {
       \"CreationDateTime\": 1519161181.107,
       \"GlobalTableArn\": \"arn:aws:dynamodb::111122223333:global-table/Thread\",
       \"GlobalTableName\": \"Thread\",
       \"GlobalTableStatus\": \"UPDATING\",
-      \"ReplicationGroup\": [ 
-          { 
+      \"ReplicationGroup\": [
+          {
              \"RegionName\": \"us-east-1\"
           }
       ]
@@ -4930,17 +6139,17 @@ update_global_table_input_tests(_) ->
 
 %% UpdateGlobalTable output test:
 update_global_table_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"UpdateGlobalTable example response with UPDATING status", "
 {
-   \"GlobalTableDescription\": { 
+   \"GlobalTableDescription\": {
       \"CreationDateTime\": 1519161181.107,
       \"GlobalTableArn\": \"arn:aws:dynamodb::111122223333:global-table/Thread\",
       \"GlobalTableName\": \"Thread\",
       \"GlobalTableStatus\": \"UPDATING\",
-      \"ReplicationGroup\": [ 
-          { 
+      \"ReplicationGroup\": [
+          {
              \"RegionName\": \"us-east-1\"
           }
       ]
@@ -4956,13 +6165,13 @@ update_global_table_output_tests(_) ->
          ?_ddb_test(
             {"UpdateGlobalTable example response with DELETING status", "
 {
-   \"GlobalTableDescription\": { 
+   \"GlobalTableDescription\": {
       \"CreationDateTime\": 1519161181.107,
       \"GlobalTableArn\": \"arn:aws:dynamodb::111122223333:global-table/Thread\",
       \"GlobalTableName\": \"Thread\",
       \"GlobalTableStatus\": \"DELETING\",
-      \"ReplicationGroup\": [ 
-          { 
+      \"ReplicationGroup\": [
+          {
              \"RegionName\": \"eu-west-1\"
           }
       ]
@@ -4974,7 +6183,376 @@ update_global_table_output_tests(_) ->
                 global_table_name = <<"Thread">>,
                 global_table_status = deleting,
                 replication_group = [#ddb2_replica_description{region_name = <<"eu-west-1">>}]}}})],
-    output_tests(?_f(erlcloud_ddb2:update_global_table(<<"Thread">>, {create, {region_name, <<"us-east-1">>}})), Tests).
+    output_tests(?_f(erlcloud_ddb2:update_global_table(<<"Thread">>, [{create, {region_name, <<"us-east-1">>}}])), Tests).
+
+update_global_table_settings_input_tests(_) ->
+    ReadUnits = 10,
+    WriteUnits = 10,
+    StaticProvisionOpts = [{global_table_billing_mode, provisioned},
+                           {global_table_global_secondary_index_settings_update, [[{index_name, <<"id-index">>},
+                                                                                   {provisioned_write_capacity_units, WriteUnits}]]},
+                           {global_table_provisioned_write_capacity_units, WriteUnits},
+                           {replica_settings_update, [[{region_name, <<"us-west-2">>},
+                                                       {replica_global_secondary_index_settings_update, [[{index_name, <<"id-index">>},
+                                                                                                          {provisioned_read_capacity_units, ReadUnits}]]},
+                                                       {replica_provisioned_read_capacity_units, ReadUnits}]]}],
+    AutoScalingSettingsUpdate = [{maximum_units, 20},
+                                 {minimum_units, 10},
+                                 {scaling_policy_update, [{target_tracking_scaling_policy_configuration, [{disable_scale_in, false},
+                                                                                                          {scale_in_cooldown, 600},
+                                                                                                          {scale_out_cooldown, 600},
+                                                                                                          {target_value, 70.0}]}]}],
+    AutoScalingProvisionOpts = [{global_table_billing_mode, provisioned},
+                                {global_table_global_secondary_index_settings_update, [[{index_name, <<"id-index">>},
+                                                                                        {provisioned_write_capacity_auto_scaling_settings_update, AutoScalingSettingsUpdate}]]},
+                                {global_table_provisioned_write_capacity_auto_scaling_settings_update, AutoScalingSettingsUpdate},
+                                {replica_settings_update, [[{region_name, <<"us-west-2">>},
+                                                            {replica_global_secondary_index_settings_update, [[{index_name, <<"id-index">>},
+                                                                                                               {provisioned_read_capacity_auto_scaling_settings_update, AutoScalingSettingsUpdate}]]},
+                                                            {replica_provisioned_read_capacity_auto_scaling_settings_update, AutoScalingSettingsUpdate}]]}],
+    Tests =
+        [?_ddb_test(
+            {"UpdateGlobalTableSettings example request: update all read/write capacity to static values",
+             ?_f(erlcloud_ddb2:update_global_table_settings(<<"Thread">>, StaticProvisionOpts)), "
+{
+  \"GlobalTableBillingMode\": \"PROVISIONED\",
+  \"GlobalTableGlobalSecondaryIndexSettingsUpdate\": [
+    {
+      \"IndexName\": \"id-index\",
+      \"ProvisionedWriteCapacityUnits\": 10
+    }
+  ],
+  \"GlobalTableName\": \"Thread\",
+  \"GlobalTableProvisionedWriteCapacityUnits\": 10,
+  \"ReplicaSettingsUpdate\": [
+    {
+      \"RegionName\": \"us-west-2\",
+      \"ReplicaGlobalSecondaryIndexSettingsUpdate\": [
+        {
+          \"IndexName\": \"id-index\",
+          \"ProvisionedReadCapacityUnits\": 10
+        }
+      ],
+      \"ReplicaProvisionedReadCapacityUnits\": 10
+    }
+  ]
+}"
+             }),
+         ?_ddb_test(
+             {"UpdateGlobalTableSettings example request: update all read/write capacity to autoscale",
+              ?_f(erlcloud_ddb2:update_global_table_settings(<<"Thread">>, AutoScalingProvisionOpts)), "
+{
+  \"GlobalTableBillingMode\": \"PROVISIONED\",
+  \"GlobalTableGlobalSecondaryIndexSettingsUpdate\": [
+    {
+      \"IndexName\": \"id-index\",
+      \"ProvisionedWriteCapacityAutoScalingSettingsUpdate\": {
+        \"MaximumUnits\": 20,
+        \"MinimumUnits\": 10,
+        \"ScalingPolicyUpdate\": {
+          \"TargetTrackingScalingPolicyConfiguration\": {
+            \"DisableScaleIn\": false,
+            \"ScaleInCooldown\": 600,
+            \"ScaleOutCooldown\": 600,
+            \"TargetValue\": 70.0
+          }
+        }
+      }
+    }
+  ],
+  \"GlobalTableName\": \"Thread\",
+  \"GlobalTableProvisionedWriteCapacityAutoScalingSettingsUpdate\": {
+    \"MaximumUnits\": 20,
+    \"MinimumUnits\": 10,
+    \"ScalingPolicyUpdate\": {
+      \"TargetTrackingScalingPolicyConfiguration\": {
+        \"DisableScaleIn\": false,
+        \"ScaleInCooldown\": 600,
+        \"ScaleOutCooldown\": 600,
+        \"TargetValue\": 70.0
+      }
+    }
+  },
+  \"ReplicaSettingsUpdate\": [
+    {
+      \"RegionName\": \"us-west-2\",
+      \"ReplicaGlobalSecondaryIndexSettingsUpdate\": [
+        {
+          \"IndexName\": \"id-index\",
+          \"ProvisionedReadCapacityAutoScalingSettingsUpdate\": {
+            \"MaximumUnits\": 20,
+            \"MinimumUnits\": 10,
+            \"ScalingPolicyUpdate\": {
+              \"TargetTrackingScalingPolicyConfiguration\": {
+                \"DisableScaleIn\": false,
+                \"ScaleInCooldown\": 600,
+                \"ScaleOutCooldown\": 600,
+                \"TargetValue\": 70.0
+              }
+            }
+          }
+        }
+      ],
+      \"ReplicaProvisionedReadCapacityAutoScalingSettingsUpdate\": {
+        \"MaximumUnits\": 20,
+        \"MinimumUnits\": 10,
+        \"ScalingPolicyUpdate\": {
+          \"TargetTrackingScalingPolicyConfiguration\": {
+            \"DisableScaleIn\": false,
+            \"ScaleInCooldown\": 600,
+            \"ScaleOutCooldown\": 600,
+            \"TargetValue\": 70.0
+          }
+        }
+      }
+    }
+  ]
+}"
+              })],
+    Response = "
+{
+  \"GlobalTableName\": \"Thread\",
+  \"ReplicaSettings\": [
+    {
+      \"RegionName\": \"us-west-2\",
+      \"ReplicaBillingModeSummary\": {
+        \"BillingMode\": \"PROVISIONED\",
+        \"LastUpdateToPayPerRequestDateTime\": 1578092745.455
+      },
+      \"ReplicaGlobalSecondaryIndexSettings\": [
+        {
+          \"IndexName\": \"id-index\",
+          \"IndexStatus\": \"ACTIVE\",
+          \"ProvisionedReadCapacityAutoScalingSettings\": {
+            \"AutoScalingDisabled\": false,
+            \"AutoScalingRoleArn\": \"arn:test\",
+            \"MaximumUnits\": 20,
+            \"MinimumUnits\": 10,
+            \"ScalingPolicies\": [
+              {
+                \"PolicyName\": \"PolicyName\",
+                \"TargetTrackingScalingPolicyConfiguration\": {
+                  \"DisableScaleIn\": false,
+                  \"ScaleInCooldown\": 600,
+                  \"ScaleOutCooldown\": 600,
+                  \"TargetValue\": 70.0
+                }
+              }
+            ]
+          },
+          \"ProvisionedReadCapacityUnits\": 10,
+          \"ProvisionedWriteCapacityAutoScalingSettings\": {
+            \"AutoScalingDisabled\": false,
+            \"AutoScalingRoleArn\": \"string\",
+            \"MaximumUnits\": 20,
+            \"MinimumUnits\": 10,
+            \"ScalingPolicies\": [
+              {
+                \"PolicyName\": \"PolicyName\",
+                \"TargetTrackingScalingPolicyConfiguration\": {
+                  \"DisableScaleIn\": false,
+                  \"ScaleInCooldown\": 600,
+                  \"ScaleOutCooldown\": 600,
+                  \"TargetValue\": 70.0
+                }
+              }
+            ]
+          },
+          \"ProvisionedWriteCapacityUnits\": 10
+        }
+      ],
+      \"ReplicaProvisionedReadCapacityAutoScalingSettings\": {
+        \"AutoScalingDisabled\": false,
+        \"AutoScalingRoleArn\": \"string\",
+        \"MaximumUnits\": 20,
+        \"MinimumUnits\": 10,
+        \"ScalingPolicies\": [
+          {
+            \"PolicyName\": \"PolicyName\",
+            \"TargetTrackingScalingPolicyConfiguration\": {
+              \"DisableScaleIn\": false,
+              \"ScaleInCooldown\": 600,
+              \"ScaleOutCooldown\": 600,
+              \"TargetValue\": 70.0
+            }
+          }
+        ]
+      },
+      \"ReplicaProvisionedReadCapacityUnits\": 10,
+      \"ReplicaProvisionedWriteCapacityAutoScalingSettings\": {
+        \"AutoScalingDisabled\": false,
+        \"AutoScalingRoleArn\": \"string\",
+        \"MaximumUnits\": 20,
+        \"MinimumUnits\": 10,
+        \"ScalingPolicies\": [
+          {
+            \"PolicyName\": \"PolicyName\",
+            \"TargetTrackingScalingPolicyConfiguration\": {
+              \"DisableScaleIn\": false,
+              \"ScaleInCooldown\": 600,
+              \"ScaleOutCooldown\": 600,
+              \"TargetValue\": 70.0
+            }
+          }
+        ]
+      },
+      \"ReplicaProvisionedWriteCapacityUnits\": 10,
+      \"ReplicaStatus\": \"ACTIVE\"
+    }
+  ]
+}",
+    input_tests(Response, Tests).
+
+update_global_table_settings_output_tests(_) ->
+    AutoScalingSettings = #ddb2_auto_scaling_settings_description{auto_scaling_disabled = false,
+                                                                  auto_scaling_role_arn = <<"arn:test">>,
+                                                                  maximum_units = 20,
+                                                                  minimum_units = 10,
+                                                                  scaling_policies = [#ddb2_auto_scaling_policy_description{policy_name = <<"PolicyName">>,
+                                                                                                                            target_tracking_scaling_policy_configuration = #ddb2_auto_scaling_target_tracking_scaling_policy_configuration_description{disable_scale_in = false,
+                                                                                                                                                                                                                                                       scale_in_cooldown = 600,
+                                                                                                                                                                                                                                                       scale_out_cooldown = 600,
+                                                                                                                                                                                                                                                       target_value = 70.0}}]},
+    Tests =
+        [?_ddb_test(
+            {"UpdateGlobalTableSettings example response: update all read/write capacity to static values", "
+{
+  \"GlobalTableName\": \"Thread\",
+  \"ReplicaSettings\": [
+    {
+      \"RegionName\": \"us-west-2\",
+      \"ReplicaBillingModeSummary\": {
+        \"BillingMode\": \"PROVISIONED\",
+        \"LastUpdateToPayPerRequestDateTime\": 1578092745.455
+      },
+      \"ReplicaGlobalSecondaryIndexSettings\": [
+        {
+          \"IndexName\": \"id-index\",
+          \"IndexStatus\": \"ACTIVE\",
+          \"ProvisionedReadCapacityUnits\": 10,
+          \"ProvisionedWriteCapacityUnits\": 10
+        }
+      ],
+      \"ReplicaProvisionedReadCapacityUnits\": 10,
+      \"ReplicaProvisionedWriteCapacityUnits\": 10,
+      \"ReplicaStatus\": \"ACTIVE\"
+    }
+  ]
+}",
+             {ok, [#ddb2_replica_settings_description{region_name = <<"us-west-2">>,
+                                                      replica_billing_mode_summary = #ddb2_billing_mode_summary{billing_mode = provisioned,
+                                                                                                                last_update_to_pay_per_request_date_time = 1578092745.455},
+                                                      replica_global_secondary_index_settings = [#ddb2_replica_global_secondary_index_settings_description{index_name = <<"id-index">>,
+                                                                                                                                                           index_status = active,
+                                                                                                                                                           provisioned_read_capacity_units = 10,
+                                                                                                                                                           provisioned_write_capacity_units = 10}],
+                                                      replica_provisioned_read_capacity_units = 10,
+                                                      replica_provisioned_write_capacity_units = 10,
+                                                      replica_status = active}]}}
+        ),
+         ?_ddb_test(
+             {"UpdateGlobalTableSettings example response: update all read/write capacity to autoscale", "
+{
+  \"GlobalTableName\": \"Thread\",
+  \"ReplicaSettings\": [
+    {
+      \"RegionName\": \"us-west-2\",
+      \"ReplicaBillingModeSummary\": {
+        \"BillingMode\": \"PROVISIONED\",
+        \"LastUpdateToPayPerRequestDateTime\": 1578092745.455
+      },
+      \"ReplicaGlobalSecondaryIndexSettings\": [
+        {
+          \"IndexName\": \"id-index\",
+          \"IndexStatus\": \"ACTIVE\",
+          \"ProvisionedReadCapacityAutoScalingSettings\": {
+            \"AutoScalingDisabled\": false,
+            \"AutoScalingRoleArn\": \"arn:test\",
+            \"MaximumUnits\": 20,
+            \"MinimumUnits\": 10,
+            \"ScalingPolicies\": [
+              {
+                \"PolicyName\": \"PolicyName\",
+                \"TargetTrackingScalingPolicyConfiguration\": {
+                  \"DisableScaleIn\": false,
+                  \"ScaleInCooldown\": 600,
+                  \"ScaleOutCooldown\": 600,
+                  \"TargetValue\": 70.0
+                }
+              }
+            ]
+          },
+          \"ProvisionedWriteCapacityAutoScalingSettings\": {
+            \"AutoScalingDisabled\": false,
+            \"AutoScalingRoleArn\": \"arn:test\",
+            \"MaximumUnits\": 20,
+            \"MinimumUnits\": 10,
+            \"ScalingPolicies\": [
+              {
+                \"PolicyName\": \"PolicyName\",
+                \"TargetTrackingScalingPolicyConfiguration\": {
+                  \"DisableScaleIn\": false,
+                  \"ScaleInCooldown\": 600,
+                  \"ScaleOutCooldown\": 600,
+                  \"TargetValue\": 70.0
+                }
+              }
+            ]
+          },
+        }
+      ],
+      \"ReplicaProvisionedReadCapacityAutoScalingSettings\": {
+        \"AutoScalingDisabled\": false,
+        \"AutoScalingRoleArn\": \"arn:test\",
+        \"MaximumUnits\": 20,
+        \"MinimumUnits\": 10,
+        \"ScalingPolicies\": [
+          {
+            \"PolicyName\": \"PolicyName\",
+            \"TargetTrackingScalingPolicyConfiguration\": {
+              \"DisableScaleIn\": false,
+              \"ScaleInCooldown\": 600,
+              \"ScaleOutCooldown\": 600,
+              \"TargetValue\": 70.0
+            }
+          }
+        ]
+      },
+      \"ReplicaProvisionedWriteCapacityAutoScalingSettings\": {
+        \"AutoScalingDisabled\": false,
+        \"AutoScalingRoleArn\": \"arn:test\",
+        \"MaximumUnits\": 20,
+        \"MinimumUnits\": 10,
+        \"ScalingPolicies\": [
+          {
+            \"PolicyName\": \"PolicyName\",
+            \"TargetTrackingScalingPolicyConfiguration\": {
+              \"DisableScaleIn\": false,
+              \"ScaleInCooldown\": 600,
+              \"ScaleOutCooldown\": 600,
+              \"TargetValue\": 70.0
+            }
+          }
+        ]
+      },
+      \"ReplicaStatus\": \"ACTIVE\"
+    }
+  ]
+}
+
+",
+              {ok, [#ddb2_replica_settings_description{region_name = <<"us-west-2">>,
+                                                       replica_billing_mode_summary = #ddb2_billing_mode_summary{billing_mode = provisioned,
+                                                                                                                 last_update_to_pay_per_request_date_time = 1578092745.455},
+                                                       replica_global_secondary_index_settings = [#ddb2_replica_global_secondary_index_settings_description{index_name = <<"id-index">>,
+                                                                                                                                                            index_status = active,
+                                                                                                                                                            provisioned_read_capacity_auto_scaling_settings = AutoScalingSettings,
+                                                                                                                                                            provisioned_write_capacity_auto_scaling_settings = AutoScalingSettings}],
+                                                       replica_provisioned_read_capacity_auto_scaling_settings = AutoScalingSettings,
+                                                       replica_provisioned_write_capacity_auto_scaling_settings = AutoScalingSettings,
+                                                       replica_status = active}]}}
+         )],
+    output_tests(?_f(erlcloud_ddb2:update_global_table_settings(<<"Thread">>, [])), Tests).
 
 %% UpdateTable test based on the API examples:
 %% http://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_UpdateTable.html
@@ -5161,11 +6739,61 @@ update_table_input_tests(_) ->
         }
     ]
 }"
+            }),
+        ?_ddb_test(
+            {"UpdateTable example request with Create GSI (pay per request)",
+             ?_f(erlcloud_ddb2:update_table(<<"Thread">>,
+                                            [{attribute_definitions, [{<<"HashKey1">>, s}]},
+                                             {global_secondary_index_updates, [
+                                                {<<"Index1">>, <<"HashKey1">>, all}]}])), "
+{
+    \"TableName\": \"Thread\",
+    \"AttributeDefinitions\": [
+        {
+            \"AttributeName\": \"HashKey1\",
+            \"AttributeType\": \"S\"
+        }
+    ],
+    \"GlobalSecondaryIndexUpdates\": [
+        {
+            \"Create\": {
+                \"IndexName\": \"Index1\",
+                \"KeySchema\": [
+                    {
+                        \"AttributeName\": \"HashKey1\",
+                        \"KeyType\": \"HASH\"
+                    }
+                ],
+                \"Projection\": {
+                    \"ProjectionType\": \"ALL\"
+                }
+            }
+        }
+    ]
+}"
+            }),
+        ?_ddb_test(
+            {"UpdateTable example request billing_mode = pay_per_request",
+             ?_f(erlcloud_ddb2:update_table(<<"Thread">>,
+                                            [{billing_mode, pay_per_request}])), "
+{
+    \"TableName\": \"Thread\",
+    \"BillingMode\": \"PAY_PER_REQUEST\"
+}"
+            }),
+        ?_ddb_test(
+            {"UpdateTable example request deletion_protection_enabled = false",
+             ?_f(erlcloud_ddb2:update_table(<<"Thread">>,
+                                            [{deletion_protection_enabled, false}])), "
+{
+    \"TableName\": \"Thread\",
+    \"DeletionProtectionEnabled\": false
+}"
             })
         ],
 
     Response = "
-{          
+{
     \"TableDescription\": {
         \"AttributeDefinitions\": [
             {
@@ -5227,10 +6855,10 @@ update_table_input_tests(_) ->
     input_tests(Response, Tests).
 
 update_table_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"UpdateTable example response", "
-{          
+{
     \"TableDescription\": {
         \"AttributeDefinitions\": [
             {
@@ -5276,7 +6904,7 @@ update_table_output_tests(_) ->
                     \"WriteCapacityUnits\": 4
                 }
             }
-        ],          
+        ],
         \"CreationDateTime\": 1.363801528686E9,
         \"ItemCount\": 0,
         \"KeySchema\": [
@@ -5334,7 +6962,7 @@ update_table_output_tests(_) ->
                        item_count = 0,
                        key_schema = {<<"ForumName">>, <<"LastPostDateTime">>},
                        projection = keys_only}],
-               global_secondary_indexes = 
+               global_secondary_indexes =
                    [#ddb2_global_secondary_index_description{
                        index_name = <<"SubjectIndex">>,
                        index_size_bytes = 2048,
@@ -5348,8 +6976,8 @@ update_table_output_tests(_) ->
                           number_of_decreases_today = 2,
                           read_capacity_units = 3,
                           write_capacity_units = 4}
-                    }],                        
-               provisioned_throughput = 
+                    }],
+               provisioned_throughput =
                    #ddb2_provisioned_throughput_description{
                       last_decrease_date_time = undefined,
                       last_increase_date_time = 1363801701.282,
@@ -5360,8 +6988,311 @@ update_table_output_tests(_) ->
                table_size_bytes = 0,
                table_status = updating}}})
         ],
-    
+
     output_tests(?_f(erlcloud_ddb2:update_table(<<"name">>, 5, 15)), Tests).
+
+update_table_replica_auto_scaling_input_tests(_) ->
+    AutoScalingSettingsUpdate = [{auto_scaling_disabled, false},
+                                 {auto_scaling_role_arn, <<"arn:test">>},
+                                 {maximum_units, 20},
+                                 {minimum_units, 10},
+                                 {scaling_policy_update, [{policy_name, <<"PolicyName">>},
+                                                          {target_tracking_scaling_policy_configuration, [{disable_scale_in, false},
+                                                                                                         {scale_in_cooldown, 600},
+                                                                                                         {scale_out_cooldown, 600},
+                                                                                                         {target_value, 70.0}]}]}],
+    Opts = [{global_secondary_index_updates, [[{index_name, <<"id-index">>},
+                                               {provisioned_write_capacity_auto_scaling_update, AutoScalingSettingsUpdate}]]},
+            {provisioned_write_capacity_auto_scaling_update, AutoScalingSettingsUpdate},
+            {replica_updates, [[{region_name, <<"us-west-2">>},
+                                {replica_global_secondary_index_updates, [[{index_name, <<"id-index">>},
+                                                                           {provisioned_read_capacity_auto_scaling_update, AutoScalingSettingsUpdate}]]},
+                                {replica_provisioned_read_capacity_auto_scaling_update, AutoScalingSettingsUpdate}]]}],
+    Tests =
+        [?_ddb_test({"UpdateTableReplicaAutoScaling example request",
+                     ?_f(erlcloud_ddb2:update_table_replica_auto_scaling(<<"Thread">>, Opts)),
+                     "
+{
+  \"GlobalSecondaryIndexUpdates\": [
+    {
+      \"IndexName\": \"id-index\",
+      \"ProvisionedWriteCapacityAutoScalingUpdate\": {
+        \"AutoScalingDisabled\": false,
+        \"AutoScalingRoleArn\": \"arn:test\",
+        \"MaximumUnits\": 20,
+        \"MinimumUnits\": 10,
+        \"ScalingPolicyUpdate\": {
+          \"PolicyName\": \"PolicyName\",
+          \"TargetTrackingScalingPolicyConfiguration\": {
+            \"DisableScaleIn\": false,
+            \"ScaleInCooldown\": 600,
+            \"ScaleOutCooldown\": 600,
+            \"TargetValue\": 70.0
+          }
+        }
+      }
+    }
+  ],
+  \"ProvisionedWriteCapacityAutoScalingUpdate\": {
+    \"AutoScalingDisabled\": false,
+    \"AutoScalingRoleArn\": \"arn:test\",
+    \"MaximumUnits\": 20,
+    \"MinimumUnits\": 10,
+    \"ScalingPolicyUpdate\": {
+      \"PolicyName\": \"PolicyName\",
+      \"TargetTrackingScalingPolicyConfiguration\": {
+        \"DisableScaleIn\": false,
+        \"ScaleInCooldown\": 600,
+        \"ScaleOutCooldown\": 600,
+        \"TargetValue\": 70.0
+      }
+    }
+  },
+  \"ReplicaUpdates\": [
+    {
+      \"RegionName\": \"us-west-2\",
+      \"ReplicaGlobalSecondaryIndexUpdates\": [
+        {
+          \"IndexName\": \"id-index\",
+          \"ProvisionedReadCapacityAutoScalingUpdate\": {
+            \"AutoScalingDisabled\": false,
+            \"AutoScalingRoleArn\": \"arn:test\",
+            \"MaximumUnits\": 20,
+            \"MinimumUnits\": 10,
+            \"ScalingPolicyUpdate\": {
+              \"PolicyName\": \"PolicyName\",
+              \"TargetTrackingScalingPolicyConfiguration\": {
+                \"DisableScaleIn\": false,
+                \"ScaleInCooldown\": 600,
+                \"ScaleOutCooldown\": 600,
+                \"TargetValue\": 70.0
+              }
+            }
+          }
+        }
+      ],
+      \"ReplicaProvisionedReadCapacityAutoScalingUpdate\": {
+        \"AutoScalingDisabled\": false,
+        \"AutoScalingRoleArn\": \"arn:test\",
+        \"MaximumUnits\": 20,
+        \"MinimumUnits\": 10,
+        \"ScalingPolicyUpdate\": {
+          \"PolicyName\": \"PolicyName\",
+          \"TargetTrackingScalingPolicyConfiguration\": {
+            \"DisableScaleIn\": false,
+            \"ScaleInCooldown\": 600,
+            \"ScaleOutCooldown\": 600,
+            \"TargetValue\": 70.0
+          }
+        }
+      }
+    }
+  ],
+  \"TableName\": \"Thread\"
+}
+
+"})],
+
+    Response = "
+{
+  \"TableAutoScalingDescription\": {
+    \"Replicas\": [
+      {
+        \"GlobalSecondaryIndexes\": [
+          {
+            \"IndexName\": \"id-index\",
+            \"IndexStatus\": \"ACTIVE\",
+            \"ProvisionedReadCapacityAutoScalingSettings\": {
+              \"AutoScalingDisabled\": false,
+              \"AutoScalingRoleArn\": \"arn:test\",
+              \"MaximumUnits\": 20,
+              \"MinimumUnits\": 10,
+              \"ScalingPolicies\": [
+                {
+                  \"PolicyName\": \"PolicyName\",
+                  \"TargetTrackingScalingPolicyConfiguration\": {
+                    \"DisableScaleIn\": false,
+                    \"ScaleInCooldown\": 600,
+                    \"ScaleOutCooldown\": 600,
+                    \"TargetValue\": 70.0
+                  }
+                }
+              ]
+            },
+            \"ProvisionedWriteCapacityAutoScalingSettings\": {
+              \"AutoScalingDisabled\": false,
+              \"AutoScalingRoleArn\": \"arn:test\",
+              \"MaximumUnits\": 20,
+              \"MinimumUnits\": 10,
+              \"ScalingPolicies\": [
+                {
+                  \"PolicyName\": \"PolicyName\",
+                  \"TargetTrackingScalingPolicyConfiguration\": {
+                    \"DisableScaleIn\": false,
+                    \"ScaleInCooldown\": 600,
+                    \"ScaleOutCooldown\": 600,
+                    \"TargetValue\": 70.0
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        \"RegionName\": \"us-west-2\",
+        \"ReplicaProvisionedReadCapacityAutoScalingSettings\": {
+          \"AutoScalingDisabled\": false,
+          \"AutoScalingRoleArn\": \"arn:test\",
+          \"MaximumUnits\": 20,
+          \"MinimumUnits\": 10,
+          \"ScalingPolicies\": [
+            {
+              \"PolicyName\": \"PolicyName\",
+              \"TargetTrackingScalingPolicyConfiguration\": {
+                \"DisableScaleIn\": false,
+                \"ScaleInCooldown\": 600,
+                \"ScaleOutCooldown\": 600,
+                \"TargetValue\": 70.0
+              }
+            }
+          ]
+        },
+        \"ReplicaProvisionedWriteCapacityAutoScalingSettings\": {
+          \"AutoScalingDisabled\": false,
+          \"AutoScalingRoleArn\": \"arn:test\",
+          \"MaximumUnits\": 20,
+          \"MinimumUnits\": 10,
+          \"ScalingPolicies\": [
+            {
+              \"PolicyName\": \"PolicyName\",
+              \"TargetTrackingScalingPolicyConfiguration\": {
+                \"DisableScaleIn\": false,
+                \"ScaleInCooldown\": 600,
+                \"ScaleOutCooldown\": 600,
+                \"TargetValue\": 70.0
+              }
+            }
+          ]
+        },
+        \"ReplicaStatus\": \"ACTIVE\"
+      }
+    ],
+    \"TableName\": \"Thread\",
+    \"TableStatus\": \"ACTIVE\"
+  }
+}",
+    input_tests(Response, Tests).
+
+update_table_replica_auto_scaling_output_tests(_) ->
+    AutoScalingSettings = #ddb2_auto_scaling_settings_description{auto_scaling_disabled = false,
+                                                                  auto_scaling_role_arn = <<"arn:test">>,
+                                                                  maximum_units = 20,
+                                                                  minimum_units = 10,
+                                                                  scaling_policies = [#ddb2_auto_scaling_policy_description{policy_name = <<"PolicyName">>,
+                                                                                                                            target_tracking_scaling_policy_configuration = #ddb2_auto_scaling_target_tracking_scaling_policy_configuration_description{disable_scale_in = false,
+                                                                                                                                                                                                                                                       scale_in_cooldown = 600,
+                                                                                                                                                                                                                                                       scale_out_cooldown = 600,
+                                                                                                                                                                                                                                                       target_value = 70.0}}]},
+    Tests =
+        [?_ddb_test(
+            {"UpdateTableReplicaAutoScaling example", "
+{
+  \"TableAutoScalingDescription\": {
+    \"Replicas\": [
+      {
+        \"GlobalSecondaryIndexes\": [
+          {
+            \"IndexName\": \"id-index\",
+            \"IndexStatus\": \"ACTIVE\",
+            \"ProvisionedReadCapacityAutoScalingSettings\": {
+              \"AutoScalingDisabled\": false,
+              \"AutoScalingRoleArn\": \"arn:test\",
+              \"MaximumUnits\": 20,
+              \"MinimumUnits\": 10,
+              \"ScalingPolicies\": [
+                {
+                  \"PolicyName\": \"PolicyName\",
+                  \"TargetTrackingScalingPolicyConfiguration\": {
+                    \"DisableScaleIn\": false,
+                    \"ScaleInCooldown\": 600,
+                    \"ScaleOutCooldown\": 600,
+                    \"TargetValue\": 70.0
+                  }
+                }
+              ]
+            },
+            \"ProvisionedWriteCapacityAutoScalingSettings\": {
+              \"AutoScalingDisabled\": false,
+              \"AutoScalingRoleArn\": \"arn:test\",
+              \"MaximumUnits\": 20,
+              \"MinimumUnits\": 10,
+              \"ScalingPolicies\": [
+                {
+                  \"PolicyName\": \"PolicyName\",
+                  \"TargetTrackingScalingPolicyConfiguration\": {
+                    \"DisableScaleIn\": false,
+                    \"ScaleInCooldown\": 600,
+                    \"ScaleOutCooldown\": 600,
+                    \"TargetValue\": 70.0
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        \"RegionName\": \"us-west-2\",
+        \"ReplicaProvisionedReadCapacityAutoScalingSettings\": {
+          \"AutoScalingDisabled\": false,
+          \"AutoScalingRoleArn\": \"arn:test\",
+          \"MaximumUnits\": 20,
+          \"MinimumUnits\": 10,
+          \"ScalingPolicies\": [
+            {
+              \"PolicyName\": \"PolicyName\",
+              \"TargetTrackingScalingPolicyConfiguration\": {
+                \"DisableScaleIn\": false,
+                \"ScaleInCooldown\": 600,
+                \"ScaleOutCooldown\": 600,
+                \"TargetValue\": 70.0
+              }
+            }
+          ]
+        },
+        \"ReplicaProvisionedWriteCapacityAutoScalingSettings\": {
+          \"AutoScalingDisabled\": false,
+          \"AutoScalingRoleArn\": \"arn:test\",
+          \"MaximumUnits\": 20,
+          \"MinimumUnits\": 10,
+          \"ScalingPolicies\": [
+            {
+              \"PolicyName\": \"PolicyName\",
+              \"TargetTrackingScalingPolicyConfiguration\": {
+                \"DisableScaleIn\": false,
+                \"ScaleInCooldown\": 600,
+                \"ScaleOutCooldown\": 600,
+                \"TargetValue\": 70.0
+              }
+            }
+          ]
+        },
+        \"ReplicaStatus\": \"ACTIVE\"
+      }
+    ],
+    \"TableName\": \"Thread\",
+    \"TableStatus\": \"ACTIVE\"
+  }
+}",
+             {ok, #ddb2_table_auto_scaling_description{replicas = [#ddb2_replica_auto_scaling_description{global_secondary_indexes = [#ddb2_replica_global_secondary_index_auto_scaling_description{index_name = <<"id-index">>,
+                                                                                                                                                                                                    index_status = active,
+                                                                                                                                                                                                    provisioned_read_capacity_auto_scaling_settings = AutoScalingSettings,
+                                                                                                                                                                                                    provisioned_write_capacity_auto_scaling_settings = AutoScalingSettings}],
+                                                                                                          region_name = <<"us-west-2">>,
+                                                                                                          replica_provisioned_read_capacity_auto_scaling_settings = AutoScalingSettings,
+                                                                                                          replica_provisioned_write_capacity_auto_scaling_settings = AutoScalingSettings,
+                                                                                                          replica_status = active}],
+                                                       table_name = <<"Thread">>,
+                                                       table_status = active}}
+})],
+    output_tests(?_f(erlcloud_ddb2:update_table_replica_auto_scaling(<<"Thread">>, [])), Tests).
 
 %% UpdateTimeToLive test:
 update_time_to_live_input_tests(_) ->
@@ -5386,10 +7317,10 @@ update_time_to_live_input_tests(_) ->
         \"AttributeName\": \"ExpirationTime\",
         \"Enabled\": false
     }
-}" 
+}"
             })],
       Response = "
-{          
+{
     \"TimeToLiveSpecification\": {
         \"AttributeName\": \"ExpirationTime\",
         \"Enabled\": true
@@ -5399,7 +7330,7 @@ update_time_to_live_input_tests(_) ->
 
 %% UpdateTimeToLive test:
 update_time_to_live_output_tests(_) ->
-    Tests = 
+    Tests =
         [?_ddb_test(
             {"UpdateTimeToLive example response", "
 {
@@ -5411,5 +7342,5 @@ update_time_to_live_output_tests(_) ->
               {ok, #ddb2_time_to_live_specification{
                 attribute_name = <<"ExpirationTime">>,
                 enabled = true}}})],
-    output_tests(?_f(erlcloud_ddb2:update_time_to_live(<<"SessionData">>, 
+    output_tests(?_f(erlcloud_ddb2:update_time_to_live(<<"SessionData">>,
       [{attribute_name, <<"ExpirationTime">>}, {enabled, true}])), Tests).
