@@ -6,7 +6,9 @@
 -export([get_instance_metadata/0, get_instance_metadata/1, get_instance_metadata/2,
         get_instance_user_data/0, get_instance_user_data/1,
         get_instance_dynamic_data/0, get_instance_dynamic_data/1, get_instance_dynamic_data/2,
-        get_imds_token/1]).
+        get_imds_token/1,
+        generate_session_token/1,
+        generate_session_token/2]).
 
 -define(IMDS_BASE_URL, "http://169.254.169.254").
 -define(IMDS_TOKEN_TTL, 21600).  % 6 hours in seconds
