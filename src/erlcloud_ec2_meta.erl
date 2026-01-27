@@ -42,7 +42,10 @@ get_instance_metadata(Config) ->
 
 -spec get_instance_metadata( ItemPath :: string(), Config :: aws_config() ) -> {ok, binary()} | {error, erlcloud_aws:httpc_result_error()}.
 get_instance_metadata(ItemPath, Config) ->
-   get_instance_metadata(ItemPath, Config, undefined).
+    MetaDataPath = ?IMDS_BASE_URL ++ "/latest/meta-data/" ++ ItemPath,
+    Headers = get_imds_headers(Config),
+    Timeout = erlcloud_aws:get_timeout(Config),
+    erlcloud_aws:http_body(erlcloud_httpc:request(MetaDataPath, get, Headers, <<>>, Timeout, Config)).
 
 %%%---------------------------------------------------------------------------
 -spec get_instance_metadata( ItemPath :: string(), Config :: aws_config(), Token :: undefined | binary()) -> {ok, binary()} | {error, erlcloud_aws:httpc_result_error()}.
@@ -55,12 +58,6 @@ get_instance_metadata(ItemPath, Config) ->
 %% <host:port> defaults to 169.254.169.254
 %%
 %%
-get_instance_metadata(ItemPath, Config) ->
-    MetaDataPath = ?IMDS_BASE_URL ++ "/latest/meta-data/" ++ ItemPath,
-    Headers = get_imds_headers(Config),
-    Timeout = erlcloud_aws:get_timeout(Config),
-    erlcloud_aws:http_body(erlcloud_httpc:request(MetaDataPath, get, Headers, <<>>, Timeout, Config)).
-
 get_instance_metadata(ItemPath, Config, Token) ->
     MetaDataPath = "http://" ++ ec2_meta_host_port() ++ "/latest/meta-data/" ++ ItemPath,
     Header = maybe_token_header(Token),
@@ -91,7 +88,7 @@ get_instance_user_data(Config) ->
     erlcloud_aws:http_body(erlcloud_httpc:request(UserDataPath, get, Headers, <<>>, Timeout, Config)).
 
 get_instance_user_data(Config, Token) ->
-    UserDataPath = "http://" ++ ec2_meta_host_port() ++ "/latest/user-data/",
+    UserDataPath =  ?IMDS_BASE_URL++ "/latest/user-data/",
     Header = maybe_token_header(Token),
     erlcloud_aws:http_body(erlcloud_httpc:request(UserDataPath, get, Header, <<>>, erlcloud_aws:get_timeout(Config), Config)).
 
@@ -105,12 +102,6 @@ get_instance_dynamic_data(Config) ->
 
 -spec get_instance_dynamic_data( ItemPath :: string(), Config :: aws_config() ) -> {ok, binary()} | {error, erlcloud_aws:httpc_result_error()}.
 get_instance_dynamic_data(ItemPath, Config) ->
-   get_instance_dynamic_data(ItemPath, Config, undefined).
-
-%%%---------------------------------------------------------------------------
--spec get_instance_dynamic_data( ItemPath :: string(), Config :: aws_config(), Token :: undefined | binary() ) -> {ok, binary()} | {error, erlcloud_aws:httpc_result_error()}.
-%%%---------------------------------------------------------------------------
-get_instance_dynamic_data(ItemPath, Config) ->
     DynamicDataPath = ?IMDS_BASE_URL ++ "/latest/dynamic/" ++ ItemPath,
     Headers = get_imds_headers(Config),
     Timeout = erlcloud_aws:get_timeout(Config),
@@ -120,7 +111,7 @@ get_instance_dynamic_data(ItemPath, Config) ->
 -spec get_instance_dynamic_data( ItemPath :: string(), Config :: aws_config(), Token :: undefined | binary() ) -> {ok, binary()} | {error, erlcloud_aws:httpc_result_error()}.
 %%%---------------------------------------------------------------------------
 get_instance_dynamic_data(ItemPath, Config, Token) ->
-    DynamicDataPath = "http://" ++ ec2_meta_host_port() ++ "/latest/dynamic/" ++ ItemPath,
+    DynamicDataPath = ?IMDS_BASE_URL ++ "/latest/dynamic/" ++ ItemPath,
     Header = maybe_token_header(Token),
     erlcloud_aws:http_body(erlcloud_httpc:request(DynamicDataPath, get, Header, <<>>, erlcloud_aws:get_timeout(Config), Config)).
 
