@@ -69,7 +69,10 @@ get_instance_user_data() ->
 
 -spec get_instance_user_data( Config :: aws_config() ) -> {ok, binary()} | {error, erlcloud_aws:httpc_result_error()}.
 get_instance_user_data(Config) ->
-   get_instance_user_data(Config, undefined).
+    UserDataPath = ?IMDS_BASE_URL ++ "/latest/user-data/",
+    Headers = get_imds_headers(Config),
+    Timeout = erlcloud_aws:get_timeout(Config),
+    erlcloud_aws:http_body(erlcloud_httpc:request(UserDataPath, get, Headers, <<>>, Timeout, Config)).
 
 %%%---------------------------------------------------------------------------
 -spec get_instance_user_data( Config :: aws_config(), Token :: undefined | binary() ) -> {ok, binary()} | {error, erlcloud_aws:httpc_result_error()}.
@@ -81,12 +84,6 @@ get_instance_user_data(Config) ->
 %% <host:port> defaults to 169.254.169.254
 %%
 %%
-get_instance_user_data(Config) ->
-    UserDataPath = ?IMDS_BASE_URL ++ "/latest/user-data/",
-    Headers = get_imds_headers(Config),
-    Timeout = erlcloud_aws:get_timeout(Config),
-    erlcloud_aws:http_body(erlcloud_httpc:request(UserDataPath, get, Headers, <<>>, Timeout, Config)).
-
 get_instance_user_data(Config, Token) ->
     UserDataPath =  ?IMDS_BASE_URL++ "/latest/user-data/",
     Header = maybe_token_header(Token),
