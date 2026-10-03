@@ -1620,12 +1620,12 @@ create_notification_param_xml({cloud_function, CF}, Acc) -> [{'CloudFunction', [
 -spec get_bucket_and_key(string()) -> {string(), string()}.
 
 get_bucket_and_key(Uri) ->
-  {ok, Parsed} = http_uri:parse(Uri),
+  Parsed = uri_string:parse(Uri),
   {Host, Path} = extract_host_and_path(Parsed),
   extract_location_fields(Host, Path).
 
-extract_host_and_path({_Scheme, _UserInfo, Host, _Port, Path, _Query}) ->
-  {Host, Path}.
+extract_host_and_path(#{host := Host} = Parsed) ->
+  {Host, maps:get(path, Parsed, "")}.
 
 extract_location_fields(Host, Path) ->
   HostTokens = string:tokens(Host, "."),

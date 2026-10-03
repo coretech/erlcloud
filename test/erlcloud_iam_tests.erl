@@ -2099,7 +2099,7 @@ list_attached_user_policies_input_tests(_) ->
              [
               {"Action", "ListAttachedUserPolicies"},
               {"UserName", "Alice"},
-              {"PathPrefix", http_uri:encode("/")}
+              {"PathPrefix", uri_string:quote("/")}
               ]})
         ],
 
@@ -2168,7 +2168,7 @@ list_attached_group_policies_input_tests(_) ->
              [
               {"Action", "ListAttachedGroupPolicies"},
               {"GroupName", "ReadOnlyUsers"},
-              {"PathPrefix", http_uri:encode("/")}
+              {"PathPrefix", uri_string:quote("/")}
               ]})
         ],
 
@@ -2237,7 +2237,7 @@ list_attached_role_policies_input_tests(_) ->
              [
               {"Action", "ListAttachedRolePolicies"},
               {"RoleName", "ReadOnlyRole"},
-              {"PathPrefix", http_uri:encode("/")}
+              {"PathPrefix", uri_string:quote("/")}
               ]})
         ],
 
@@ -2436,7 +2436,7 @@ list_entities_for_policy_input_tests(_) ->
         ?_f(erlcloud_iam:list_entities_for_policy("test")),
         [
           {"Action", "ListEntitiesForPolicy"},
-          {"PathPrefix", http_uri:encode("/")},
+          {"PathPrefix", uri_string:quote("/")},
           {"PolicyArn", "test"}
         ]})
     ],
@@ -2560,7 +2560,7 @@ get_policy_input_tests(_) ->
              ?_f(erlcloud_iam:get_policy("arn:aws:iam::123456789012:policy/S3-read-only-example-bucket")),
              [
               {"Action", "GetPolicy"},
-              {"PolicyArn", http_uri:encode("arn:aws:iam::123456789012:policy/S3-read-only-example-bucket")}
+              {"PolicyArn", uri_string:quote("arn:aws:iam::123456789012:policy/S3-read-only-example-bucket")}
               ]})
         ],
 
@@ -2608,7 +2608,7 @@ get_policy_version_input_tests(_) ->
              ?_f(erlcloud_iam:get_policy_version("arn:aws:iam::123456789012:policy/S3-read-only-example-bucket", "v1")),
              [
               {"Action", "GetPolicyVersion"},
-              {"PolicyArn", http_uri:encode("arn:aws:iam::123456789012:policy/S3-read-only-example-bucket")},
+              {"PolicyArn", uri_string:quote("arn:aws:iam::123456789012:policy/S3-read-only-example-bucket")},
               {"VersionId", "v1"}
               ]})
         ],
@@ -2704,7 +2704,7 @@ simulate_custom_policy_input_test(_) ->
                                                       PolicyDoc2])),
              [
               {"Action", "SimulateCustomPolicy"},
-              {"ActionNames.member.1", http_uri:encode(Action)},
+              {"ActionNames.member.1", uri_string:quote(Action)},
               {"PolicyInputList.member.1", PolicyDoc1},
               {"PolicyInputList.member.2", PolicyDoc2},
               {"MaxItems", "1000"}
@@ -2738,8 +2738,8 @@ simulate_principal_policy_input_test(_) ->
                                                         [Action])),
              [
               {"Action", "SimulatePrincipalPolicy"},
-              {"ActionNames.member.1", http_uri:encode(Action)},
-              {"PolicySourceArn", http_uri:encode(Principal)},
+              {"ActionNames.member.1", uri_string:quote(Action)},
+              {"PolicySourceArn", uri_string:quote(Principal)},
               {"MaxItems", "1000"}
               ]})
         ],

@@ -7,11 +7,11 @@
 -define(MAX_ITEMS, 1000).
 
 sha_mac(K, S) ->
-    crypto:hmac(sha, K, S).
+    crypto:mac(hmac, sha, K, S).
 
 
 sha256_mac(K, S) ->
-    crypto:hmac(sha256, K, S).
+    crypto:mac(hmac, sha256, K, S).
 
 sha256(V) ->
     crypto:hash(sha256, V).
@@ -21,7 +21,7 @@ md5(V) ->
 
 -ifndef(ERLANG_OTP_VERSION_19).
 rand_uniform(N) ->
-    random:uniform(N).
+    rand:uniform(N).
 -else.
 rand_uniform(N) ->
     rand:uniform(N).

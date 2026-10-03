@@ -964,4 +964,4 @@ data_fun("Boolean") -> {erlcloud_xml, get_bool};
 data_fun("Uri") -> {?MODULE, get_uri}.
 
 get_uri(Key, Item) ->
-    http_uri:decode(erlcloud_xml:get_text(Key, Item)).
+    uri_string:unquote(erlcloud_xml:get_text(Key, Item)).
