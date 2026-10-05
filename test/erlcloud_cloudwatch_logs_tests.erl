@@ -40,7 +40,9 @@
 -define(LOG_STREAM_NAME_PREFIX, <<"welcome">>).
 -define(LOG_STREAM_NAME, <<"welcome">>).
 -define(PAGING_TOKEN, <<"arn:aws:logs:us-east-1:352773894028:log-group:/aws/apigateway/welcome:*">>).
-
+-define(FILTER_NAME_PREFIX, <<"aws/apigateway/welcome">>).
+-define(METRIC_NAME, <<"ct_test_metric">>).
+-define(METRIC_NAMESPACE, <<"CISBenchmark">>).
 
 -define(LOG_GROUP, [
     {<<"arn">>, <<"arn:aws:logs:us-east-1:352773894028:log-group:/aws/apigateway/welcome:*">>},
@@ -49,6 +51,20 @@
     {<<"metricFilterCount">>, 0},
     {<<"retentionInDays">>, 10},
     {<<"storedBytes">>, 85}
+]).
+
+-define(METRIC_FILTER, [
+    {<<"creationTime">>, 1518024063379},
+    {<<"filterName">>, <<"ct_test_filter">>},
+    {<<"filterPattern">>, <<"{ ($.errorCode = \"*UnauthorizedOperation\") "
+                            "|| ($.errorCode = \"AccessDenied*\") }">>},
+    {<<"logGroupName">>, ?LOG_GROUP_NAME},
+    {<<"metricTransformations">>, [
+        {<<"defaultValue">>, <<"0">>},
+        {<<"metricValue">>, <<"1">>},
+        {<<"metricNamespace">>, ?METRIC_NAMESPACE},
+        {<<"metricName">>, ?METRIC_NAME}
+    ]}
 ]).
 
 -define(LOG_STREAM, [
@@ -73,13 +89,28 @@
 
 erlcloud_cloudwatch_test_() ->
     {foreach, fun start/0, fun stop/1, [
+        fun create_log_group_input_test/1,
+
+        fun create_log_stream_input_test/1,
+
+        fun delete_log_group_input_test/1,
+
+        fun delete_log_stream_input_test/1,
+
         fun describe_log_groups_input_tests/1,
         fun describe_log_groups_output_tests/1,
+
+        fun describe_metric_filters_input_tests/1,
+        fun describe_metric_filters_output_tests/1,
 
         fun describe_log_streams_input_tests/1,
         fun describe_log_streams_output_tests/1,
 
-        fun put_logs_events_input_tests/1        
+        fun put_logs_events_input_tests/1,
+
+        fun start_query_output_tests/1,
+        fun stop_query_output_tests/1,
+        fun get_query_results_output_tests/1
     ]}.
 
 
@@ -99,6 +130,133 @@ stop(_) ->
 %%==============================================================================
 %% Test functions
 %%==============================================================================
+
+
+create_log_group_input_test(_) ->
+    input_tests(jsx:encode([]), [
+        ?_cloudwatch_test(
+            {"Tests creating log group",
+             ?_f(erlcloud_cloudwatch_logs:create_log_group(?LOG_GROUP_NAME)),
+             [{<<"Action">>, <<"CreateLogGroup">>},
+              {<<"Version">>, ?API_VERSION},
+              {<<"logGroupName">>, ?LOG_GROUP_NAME}]}
+        ),
+        ?_cloudwatch_test(
+            {"Tests creating log group with custom AWS config provided",
+             ?_f(erlcloud_cloudwatch_logs:create_log_group(
+                 ?LOG_GROUP_NAME,
+                 erlcloud_aws:default_config()
+             )),
+             [{<<"Action">>, <<"CreateLogGroup">>},
+              {<<"Version">>, ?API_VERSION},
+              {<<"logGroupName">>, ?LOG_GROUP_NAME}]}
+        ),
+        ?_cloudwatch_test(
+            {"Tests creating log group with AWS Tags and KMS key",
+             ?_f(erlcloud_cloudwatch_logs:create_log_group(
+                 ?LOG_GROUP_NAME,
+                 [{<<"tag_name">>, <<"tag_value">>}],
+                 "alias/example",
+                 erlcloud_aws:default_config()
+             )),
+             [{<<"Action">>, <<"CreateLogGroup">>},
+              {<<"tags">>, [{<<"tag_name">>, <<"tag_value">>}]},
+              {<<"kmsKeyId">>, <<"alias/example">>},
+              {<<"Version">>, ?API_VERSION},
+              {<<"logGroupName">>, ?LOG_GROUP_NAME}]}
+        ),
+        ?_cloudwatch_test(
+            {"Tests creating log group without AWS Tags and with KMS key",
+             ?_f(erlcloud_cloudwatch_logs:create_log_group(
+                ?LOG_GROUP_NAME,
+                undefined,
+                "alias/example",
+                erlcloud_aws:default_config()
+             )),
+             [{<<"Action">>, <<"CreateLogGroup">>},
+              {<<"kmsKeyId">>, <<"alias/example">>},
+              {<<"Version">>, ?API_VERSION},
+              {<<"logGroupName">>, ?LOG_GROUP_NAME}]}
+        )
+    ]).
+
+
+delete_log_group_input_test(_) ->
+    input_tests(jsx:encode([]), [
+        ?_cloudwatch_test(
+            {"Tests creating log group",
+             ?_f(erlcloud_cloudwatch_logs:delete_log_group(?LOG_GROUP_NAME)),
+             [{<<"Action">>, <<"DeleteLogGroup">>},
+              {<<"Version">>, ?API_VERSION},
+              {<<"logGroupName">>, ?LOG_GROUP_NAME}]}
+        ),
+        ?_cloudwatch_test(
+            {"Tests creating log group with custom AWS config provided",
+             ?_f(erlcloud_cloudwatch_logs:delete_log_group(
+                 ?LOG_GROUP_NAME,
+                 erlcloud_aws:default_config()
+             )),
+             [{<<"Action">>, <<"DeleteLogGroup">>},
+              {<<"Version">>, ?API_VERSION},
+              {<<"logGroupName">>, ?LOG_GROUP_NAME}]}
+        )
+    ]).
+
+
+create_log_stream_input_test(_) ->
+    input_tests(jsx:encode([]), [
+        ?_cloudwatch_test(
+            {"Tests creating log stream",
+             ?_f(erlcloud_cloudwatch_logs:create_log_stream(
+                 ?LOG_GROUP_NAME,
+                 ?LOG_STREAM_NAME
+             )),
+             [{<<"Action">>, <<"CreateLogStream">>},
+              {<<"Version">>, ?API_VERSION},
+              {<<"logGroupName">>, ?LOG_GROUP_NAME},
+              {<<"logStreamName">>, ?LOG_STREAM_NAME}]}
+        ),
+        ?_cloudwatch_test(
+            {"Tests creating log stream with custom AWS config provided",
+             ?_f(erlcloud_cloudwatch_logs:create_log_stream(
+                 ?LOG_GROUP_NAME,
+                 ?LOG_STREAM_NAME,
+                 erlcloud_aws:default_config()
+             )),
+             [{<<"Action">>, <<"CreateLogStream">>},
+              {<<"Version">>, ?API_VERSION},
+              {<<"logGroupName">>, ?LOG_GROUP_NAME},
+              {<<"logStreamName">>, ?LOG_STREAM_NAME}]}
+        )
+    ]).
+
+
+delete_log_stream_input_test(_) ->
+    input_tests(jsx:encode([]), [
+        ?_cloudwatch_test(
+            {"Tests creating log stream",
+             ?_f(erlcloud_cloudwatch_logs:delete_log_stream(
+                ?LOG_GROUP_NAME,
+                 ?LOG_STREAM_NAME
+             )),
+             [{<<"Action">>, <<"DeleteLogStream">>},
+              {<<"Version">>, ?API_VERSION},
+              {<<"logGroupName">>, ?LOG_GROUP_NAME},
+              {<<"logStreamName">>, ?LOG_STREAM_NAME}]}
+        ),
+        ?_cloudwatch_test(
+            {"Tests creating log stream with custom AWS config provided",
+             ?_f(erlcloud_cloudwatch_logs:delete_log_stream(
+                 ?LOG_GROUP_NAME,
+                 ?LOG_STREAM_NAME,
+                 erlcloud_aws:default_config()
+             )),
+             [{<<"Action">>, <<"DeleteLogStream">>},
+              {<<"Version">>, ?API_VERSION},
+              {<<"logGroupName">>, ?LOG_GROUP_NAME},
+              {<<"logStreamName">>, ?LOG_STREAM_NAME}]}
+        )
+    ]).
 
 
 describe_log_groups_input_tests(_) ->
@@ -172,6 +330,118 @@ describe_log_groups_input_tests(_) ->
     ]).
 
 
+describe_metric_filters_input_tests(_) ->
+    input_tests(jsx:encode([{<<"metricFilters">>, []}]), [
+        ?_cloudwatch_test(
+            {"Tests describing metric filters with no parameters",
+             ?_f(erlcloud_cloudwatch_logs:describe_metric_filters()),
+             [{<<"Action">>, <<"DescribeMetricFilters">>},
+              {<<"Version">>, ?API_VERSION},
+              {<<"limit">>, ?DEFAULT_LIMIT}]}
+        ),
+        ?_cloudwatch_test(
+            {"Tests describing metric filters with custom AWS config provided",
+             ?_f(erlcloud_cloudwatch_logs:describe_metric_filters(
+                 erlcloud_aws:default_config()
+             )),
+             [{<<"Action">>, <<"DescribeMetricFilters">>},
+              {<<"Version">>, ?API_VERSION},
+              {<<"limit">>, ?DEFAULT_LIMIT}]}
+        ),
+        ?_cloudwatch_test(
+            {"Tests describing metric filters with log group name provided",
+             ?_f(erlcloud_cloudwatch_logs:describe_metric_filters(
+                 ?LOG_GROUP_NAME
+             )),
+             [{<<"Action">>, <<"DescribeMetricFilters">>},
+              {<<"Version">>, ?API_VERSION},
+              {<<"limit">>, ?DEFAULT_LIMIT},
+              {<<"logGroupName">>, ?LOG_GROUP_NAME}]}
+        ),
+        ?_cloudwatch_test(
+            {"Tests describing metric filters with custom AWS config and "
+             "log group name provided",
+             ?_f(erlcloud_cloudwatch_logs:describe_metric_filters(
+                 ?LOG_GROUP_NAME,
+                 erlcloud_aws:default_config()
+             )),
+             [{<<"Action">>, <<"DescribeMetricFilters">>},
+              {<<"Version">>, ?API_VERSION},
+              {<<"limit">>, ?DEFAULT_LIMIT},
+              {<<"logGroupName">>, ?LOG_GROUP_NAME}]}
+        ),
+        ?_cloudwatch_test(
+            {"Tests describing metric filters with custom AWS config, "
+             "log group name and limit provided",
+             ?_f(erlcloud_cloudwatch_logs:describe_metric_filters(
+                 ?LOG_GROUP_NAME,
+                 ?NON_DEFAULT_LIMIT,
+                 erlcloud_aws:default_config()
+             )),
+             [{<<"Action">>, <<"DescribeMetricFilters">>},
+              {<<"Version">>, ?API_VERSION},
+              {<<"limit">>, ?NON_DEFAULT_LIMIT},
+              {<<"logGroupName">>, ?LOG_GROUP_NAME}]}
+        ),
+        ?_cloudwatch_test(
+            {"Tests describing metric filters with custom AWS config, "
+             "log group name, limit and filter name prefix provided",
+             ?_f(erlcloud_cloudwatch_logs:describe_metric_filters(
+                 ?LOG_GROUP_NAME,
+                 ?NON_DEFAULT_LIMIT,
+                 ?FILTER_NAME_PREFIX,
+                 erlcloud_aws:default_config()
+             )),
+             [{<<"Action">>, <<"DescribeMetricFilters">>},
+              {<<"Version">>, ?API_VERSION},
+              {<<"filterNamePrefix">>, ?FILTER_NAME_PREFIX},
+              {<<"limit">>, ?NON_DEFAULT_LIMIT},
+              {<<"logGroupName">>, ?LOG_GROUP_NAME}]}
+        ),
+        ?_cloudwatch_test(
+            {"Tests describing metric filters with custom AWS config, "
+             "log group name, limit, filter name prefix, metric name and "
+             "metric namespace provided",
+             ?_f(erlcloud_cloudwatch_logs:describe_metric_filters(
+                 ?LOG_GROUP_NAME,
+                 ?NON_DEFAULT_LIMIT,
+                 ?FILTER_NAME_PREFIX,
+                 ?METRIC_NAME,
+                 ?METRIC_NAMESPACE,
+                 erlcloud_aws:default_config()
+             )),
+             [{<<"Action">>, <<"DescribeMetricFilters">>},
+              {<<"Version">>, ?API_VERSION},
+              {<<"limit">>, ?NON_DEFAULT_LIMIT},
+              {<<"filterNamePrefix">>, ?FILTER_NAME_PREFIX},
+              {<<"metricName">>, ?METRIC_NAME},
+              {<<"metricNamespace">>, ?METRIC_NAMESPACE},
+              {<<"logGroupName">>, ?LOG_GROUP_NAME}]}
+        ),
+        ?_cloudwatch_test(
+            {"Tests describing metric filters with custom AWS config, "
+             "log group name, limit, filter name prefix, metric name, "
+             "metric namespace and pagination token provided",
+             ?_f(erlcloud_cloudwatch_logs:describe_metric_filters(
+                 ?LOG_GROUP_NAME,
+                 ?NON_DEFAULT_LIMIT,
+                 ?FILTER_NAME_PREFIX,
+                 ?METRIC_NAME,
+                 ?METRIC_NAMESPACE,
+                 ?PAGING_TOKEN,
+                 erlcloud_aws:default_config()
+             )),
+             [{<<"Action">>, <<"DescribeMetricFilters">>},
+              {<<"Version">>, ?API_VERSION},
+              {<<"limit">>, ?NON_DEFAULT_LIMIT},
+              {<<"filterNamePrefix">>, ?FILTER_NAME_PREFIX},
+              {<<"metricName">>, ?METRIC_NAME},
+              {<<"metricNamespace">>, ?METRIC_NAMESPACE},
+              {<<"nextToken">>, ?PAGING_TOKEN},
+              {<<"logGroupName">>, ?LOG_GROUP_NAME}]}
+        )
+    ]).
+
 describe_log_groups_output_tests(_) ->
     output_tests(?_f(erlcloud_cloudwatch_logs:describe_log_groups()), [
         ?_cloudwatch_test(
@@ -181,6 +451,15 @@ describe_log_groups_output_tests(_) ->
         )
     ]).
 
+
+describe_metric_filters_output_tests(_) ->
+    output_tests(?_f(erlcloud_cloudwatch_logs:describe_metric_filters()), [
+        ?_cloudwatch_test(
+            {"Tests describing all metric filters",
+             jsx:encode([{<<"metricFilters">>, [?METRIC_FILTER]}]),
+             {ok, [?METRIC_FILTER], undefined}}
+        )
+    ]).
 
 describe_log_streams_input_tests(_) ->
     input_tests(jsx:encode([{<<"logStreams">>, []}]), [
@@ -197,7 +476,7 @@ describe_log_streams_input_tests(_) ->
         ?_cloudwatch_test(
             {"Tests describing log streams with with log group name and stream name prefix",
              ?_f(erlcloud_cloudwatch_logs:describe_log_streams(
-                 ?LOG_GROUP_NAME, 
+                 ?LOG_GROUP_NAME,
                  ?LOG_STREAM_NAME_PREFIX,
                  erlcloud_aws:default_config()
              )),
@@ -213,7 +492,7 @@ describe_log_streams_input_tests(_) ->
             {"Tests describing log streams with with log group name, stream name prefix"
              "and stream sorting",
              ?_f(erlcloud_cloudwatch_logs:describe_log_streams(
-                 ?LOG_GROUP_NAME, 
+                 ?LOG_GROUP_NAME,
                  ?LOG_STREAM_NAME_PREFIX,
                  last_event_time,
                  true,
@@ -231,7 +510,7 @@ describe_log_streams_input_tests(_) ->
             {"Tests describing log streams with with log group name, stream name prefix,"
              "stream sorting and limits",
              ?_f(erlcloud_cloudwatch_logs:describe_log_streams(
-                 ?LOG_GROUP_NAME, 
+                 ?LOG_GROUP_NAME,
                  ?LOG_STREAM_NAME_PREFIX,
                  last_event_time,
                  true,
@@ -250,7 +529,7 @@ describe_log_streams_input_tests(_) ->
             {"Tests describing log streams with with log group name, stream name prefix,"
              "stream sorting, limits and page token",
              ?_f(erlcloud_cloudwatch_logs:describe_log_streams(
-                 ?LOG_GROUP_NAME, 
+                 ?LOG_GROUP_NAME,
                  ?LOG_STREAM_NAME_PREFIX,
                  last_event_time,
                  true,
@@ -266,7 +545,7 @@ describe_log_streams_input_tests(_) ->
               {<<"logStreamNamePrefix">>, ?LOG_STREAM_NAME_PREFIX},
               {<<"nextToken">>, ?PAGING_TOKEN},
               {<<"orderBy">>,<<"LastEventTime">>}]}
-        )        
+        )
     ]).
 
 
@@ -301,6 +580,51 @@ put_logs_events_input_tests(_) ->
         )
     ]).
 
+start_query_output_tests(_) ->
+    output_tests(?_f(erlcloud_cloudwatch_logs:start_query(["LogGroupName1", "LogGroupName2", "LogGroupName3"],
+                                                          "stats count(*) by eventSource, eventName, awsRegion",
+                                                          1546300800,
+                                                          1546309800,
+                                                          100)), [
+        ?_cloudwatch_test(
+            {"Tests output format for start_query",
+             jsx:encode([{<<"queryId">>, <<"12ab3456-12ab-123a-789e-1234567890ab">>}]),
+             {ok, #{ query_id => "12ab3456-12ab-123a-789e-1234567890ab" }}}
+        )
+    ]).
+
+stop_query_output_tests(_) ->
+    output_tests(?_f(erlcloud_cloudwatch_logs:stop_query("12ab3456-12ab-123a-789e-1234567890ab")), [
+        ?_cloudwatch_test(
+            {"Tests output format for stop_query",
+             jsx:encode([{<<"success">>, true}]),
+             ok}
+        )
+    ]).
+
+get_query_results_output_tests(_) ->
+    output_tests(?_f(erlcloud_cloudwatch_logs:get_query_results("12ab3456-12ab-123a-789e-1234567890ab", [{out, map}])), [
+        ?_cloudwatch_test(
+            {"Tests output format for get_query_results",
+             jsx:encode([{<<"results">>, [[[{<<"field">>, <<"LogEvent1-field1-name">>},
+                                            {<<"value">>, <<"LogEvent1-field1-value">>}],
+                                           [{<<"field">>, <<"LogEvent1-field2-name">>},
+                                            {<<"value">>, <<"LogEvent1-field2-value">>}]]]},
+                         {<<"statistics">>, [{<<"bytesScanned">>, 81349723.0},
+                                             {<<"recordsMatched">>, 360851.0},
+                                             {<<"recordsScanned">>, 610956.0}]},
+                         {<<"status">>, <<"Complete">>}]),
+             {ok, #{ results => [[#{ field => <<"LogEvent1-field1-name">>,
+                                     value => <<"LogEvent1-field1-value">> },
+                                  #{ field => <<"LogEvent1-field2-name">>,
+                                     value => <<"LogEvent1-field2-value">> }]],
+                     statistics => #{ bytes_scanned => 81349723.0,
+                                      records_matched => 360851.0,
+                                      records_scanned => 610956.0 },
+                     status => complete }}}
+        )
+    ]).
+
 %%==============================================================================
 %% Internal functions
 %%==============================================================================
@@ -317,7 +641,7 @@ input_test(ResponseBody, {Line, {Description, Fun, ExpectedParams}}) ->
                 erlcloud_httpc,
                 request,
                 fun(_Url, post, _Headers, RequestBody, _Timeout, _Config) ->
-                    ActualParams = jsx:decode(RequestBody),
+                    ActualParams = jsx:decode(RequestBody, [{return_maps, false}]),
                     ?assertEqual(sort_json(ExpectedParams), sort_json(ActualParams)),
                     {ok, {{200, "OK"}, [], ResponseBody}}
                 end

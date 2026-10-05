@@ -8,18 +8,20 @@
          aws_request_xml4/6, aws_request_xml4/8,
          aws_region_from_host/1,
          aws_request_form/8,
-         aws_request_form_raw/8,
-         do_aws_request_form_raw/9,
+         aws_request_form_raw/8, aws_request_form_raw/9,
+         do_aws_request_form_raw/9, do_aws_request_form_raw/10,
          param_list/2, default_config/0, auto_config/0, auto_config/1,
-         default_config_region/2,
+         default_config_region/2, default_config_override/1,
          update_config/1,clear_config/1, clear_expired_configs/0,
          service_config/3, service_host/2,
+         get_host_vpc_endpoint/2, get_vpc_endpoints/0,
          configure/1, format_timestamp/1,
          http_headers_body/1,
          http_body/1,
          request_to_return/1,
          sign_v4_headers/5,
          sign_v4/8,
+         canonical_query_string/1,
          get_service_status/1,
          is_throttling_error_response/1,
          get_timeout/1,
@@ -28,7 +30,6 @@
 
 -include("erlcloud.hrl").
 -include("erlcloud_aws.hrl").
--include_lib("lhttpc/include/lhttpc_types.hrl").
 
 -define(ERLCLOUD_RETRY_TIMEOUT, 10000).
 -define(GREGORIAN_EPOCH_OFFSET, 62167219200).
@@ -42,7 +43,7 @@
 -define(AWS_REGION,  ["AWS_DEFAULT_REGION", "AWS_REGION"]).
 
 %% types
--type http_client_result() :: result(). % from lhttpc_types.hrl
+-type http_client_result() :: erlcloud_httpc:result().
 -type http_client_headers() :: [{string(), string()}].
 -type httpc_result_ok() :: {http_client_headers(), binary()}.
 -type httpc_result_error() :: {http_error, Status :: pos_integer(), StatusLine :: string(), Body :: binary()}
@@ -67,29 +68,32 @@
 
 -record(profile_options, {
          session_name :: string(),
-         session_secs :: 900..3600,
+         session_secs :: 900..43200,
          external_id :: string()
 }).
 
 aws_request_xml(Method, Host, Path, Params, #aws_config{} = Config) ->
     Body = aws_request(Method, Host, Path, Params, Config),
-    element(1, xmerl_scan:string(binary_to_list(Body))).
+    raw_xml_response(Body).
 aws_request_xml(Method, Host, Path, Params, AccessKeyID, SecretAccessKey) ->
     Body = aws_request(Method, Host, Path, Params, AccessKeyID, SecretAccessKey),
-    element(1, xmerl_scan:string(binary_to_list(Body))).
+    raw_xml_response(Body).
 aws_request_xml(Method, Protocol, Host, Port, Path, Params, #aws_config{} = Config) ->
     Body = aws_request(Method, Protocol, Host, Port, Path, Params, Config),
-    element(1, xmerl_scan:string(binary_to_list(Body))).
+    raw_xml_response(Body).
 aws_request_xml(Method, Protocol, Host, Port, Path, Params, AccessKeyID, SecretAccessKey) ->
     Body = aws_request(Method, Protocol, Host, Port, Path, Params, AccessKeyID, SecretAccessKey),
-    element(1, xmerl_scan:string(binary_to_list(Body))).
+    raw_xml_response(Body).
 
 aws_request_xml2(Method, Host, Path, Params, #aws_config{} = Config) ->
     aws_request_xml2(Method, undefined, Host, undefined, Path, Params, Config).
 aws_request_xml2(Method, Protocol, Host, Port, Path, Params, #aws_config{} = Config) ->
     case aws_request2(Method, Protocol, Host, Port, Path, Params, Config) of
         {ok, Body} ->
-            {ok, element(1, xmerl_scan:string(binary_to_list(Body)))};
+            case format_xml_response(Body) of
+                {ok, XML} -> {ok, XML};
+                Error -> {error, Error}
+            end;
         {error, Reason} ->
             {error, Reason}
     end.
@@ -99,7 +103,10 @@ aws_request_xml4(Method, Host, Path, Params, Service, #aws_config{} = Config) ->
 aws_request_xml4(Method, Protocol, Host, Port, Path, Params, Service, #aws_config{} = Config) ->
     case aws_request4(Method, Protocol, Host, Port, Path, Params, Service, Config) of
         {ok, Body} ->
-            {ok, element(1, xmerl_scan:string(binary_to_list(Body)))};
+            case format_xml_response(Body) of
+                {ok, XML} -> {ok, XML};
+                Error -> {error, Error}
+            end;
         {error, Reason} ->
             {error, Reason}
     end.
@@ -155,15 +162,19 @@ aws_region_from_host(Host) ->
         %% we need to account for that:
         %%  us-west-2: s3.us-west-2.amazonaws.com
         %%  cn-north-1 (AWS China): s3.cn-north-1.amazonaws.com.cn
+        %%  cn-northwest-1 (AWS China): s3.cn-northwest-1.amazonaws.com.cn
         %% it's assumed that the first element is the aws service (s3, ec2, etc),
         %% the second is the region identifier, the rest is ignored
         %% the exception (of course) is the dynamodb streams and the marketplace which follows a
         %% different format
+        %% another exception is VPC endpoints
         ["streams", "dynamodb", Value | _Rest] ->
             Value;
         [Prefix, "marketplace", Value | _Rest]
-            when Prefix =:= "metering"; Prefix =:= "entitlement" ->
-                Value;
+                when Prefix =:= "metering"; Prefix =:= "entitlement" ->
+            Value;
+        [_, _, Value, "vpce" | _Rest] ->
+            Value;
         [_, Value, _, _ | _Rest] ->
             Value;
         _ ->
@@ -206,8 +217,8 @@ aws_request4_no_update(Method, Protocol, Host, Port, Path, Params, Service,
 
 
 -spec aws_request_form(Method :: atom(), Protocol :: undefined | string(), Host :: string(),
-                        Port :: undefined | integer() | string(), Path :: string(), Form :: [string()],
-                        Headers :: list(), Config :: aws_config()) -> {ok, Body :: binary()} | {error, httpc_result_error()}.
+                       Port :: undefined | integer() | string(), Path :: string(), Form :: [string()],
+                       Headers :: list(), Config :: aws_config()) -> {ok, Body :: binary()} | {error, httpc_result_error()}.
 aws_request_form(Method, Protocol, Host, Port, Path, Form, Headers, Config) ->
     RequestHeaders = case proplists:is_defined("content-type", Headers) of
       false -> [{"content-type", ?DEFAULT_CONTENT_TYPE} | Headers];
@@ -217,16 +228,27 @@ aws_request_form(Method, Protocol, Host, Port, Path, Form, Headers, Config) ->
         undefined -> "https://";
         _ -> [Protocol, "://"]
     end,
-    aws_request_form_raw(Method, Scheme, Host, Port, Path, list_to_binary(Form), RequestHeaders, Config).
+    aws_request_form_raw(Method, Scheme, Host, Port, Path, list_to_binary(Form), RequestHeaders, [], Config).
+
 
 -spec aws_request_form_raw(Method :: atom(), Scheme :: string() | [string()],
-                        Host :: string(), Port :: undefined | integer() | string(),
-                        Path :: string(), Form :: iodata(), Headers :: list(),
-                        Config :: aws_config()) -> {ok, Body :: binary()} | {error, httpc_result_error()}.
+                           Host :: string(), Port :: undefined | integer() | string(),
+                           Path :: string(), Form :: iodata(), Headers :: list(),
+                           Config :: aws_config()) -> {ok, Body :: binary()} | {error, httpc_result_error()}.
 aws_request_form_raw(Method, Scheme, Host, Port, Path, Form, Headers, Config) ->
-    do_aws_request_form_raw(Method, Scheme, Host, Port, Path, Form, Headers, Config, false).
+    do_aws_request_form_raw(Method, Scheme, Host, Port, Path, Form, Headers, [], Config, false).
+
+-spec aws_request_form_raw(Method :: atom(), Scheme :: string() | [string()],
+                           Host :: string(), Port :: undefined | integer() | string(),
+                           Path :: string(), Form :: iodata(), Headers :: list(), QueryString :: string(),
+                           Config :: aws_config()) -> {ok, Body :: binary()} | {error, httpc_result_error()}.
+aws_request_form_raw(Method, Scheme, Host, Port, Path, Form, Headers, QueryString, Config) ->
+    do_aws_request_form_raw(Method, Scheme, Host, Port, Path, Form, Headers, QueryString, Config, false).
 
 do_aws_request_form_raw(Method, Scheme, Host, Port, Path, Form, Headers, Config, ShowRespHeaders) ->
+    do_aws_request_form_raw(Method, Scheme, Host, Port, Path, Form, Headers, [], Config, ShowRespHeaders).
+
+do_aws_request_form_raw(Method, Scheme, Host, Port, Path, Form, Headers, QueryString, Config, ShowRespHeaders) ->
     URL = case Port of
         undefined -> [Scheme, Host, Path];
         _ -> [Scheme, Host, $:, port_to_str(Port), Path]
@@ -246,32 +268,23 @@ do_aws_request_form_raw(Method, Scheme, Host, Port, Path, Form, Headers, Config,
                          response_status = Status} = Request) when
                 %% Retry for 400, Bad Request is needed due to Amazon
                 %% returns it in case of throttling
-                    Status == 400; Status == 429 ->
+                    Status == 400; Status == 403; Status == 429 ->
                 ShouldRetry = is_throttling_error_response(Request),
                 Request#aws_request{should_retry = ShouldRetry};
            (#aws_request{response_type = error} = Request) ->
                 Request#aws_request{should_retry = false}
         end,
 
+    {URI, Body} = aws_request_form_uri_and_body(Method, URL, Form, QueryString),
+    AwsRequest = #aws_request{uri = URI,
+                              method = Method,
+                              request_headers = Headers,
+                              request_body = Body},
+
     %% Note: httpc MUST be used with {timeout, timeout()} option
     %%       Many timeout related failures is observed at prod env
     %%       when library is used in 24/7 manner
-    Response =
-        case Method of
-            M when M =:= get orelse M =:= head orelse M =:= delete ->
-                Req = lists:flatten([URL, $?, Form]),
-                AwsRequest = #aws_request{uri = Req,
-                                          method = M,
-                                          request_headers = Headers,
-                                          request_body = <<>>},
-                erlcloud_retry:request(Config, AwsRequest, ResultFun);
-            _ ->
-                AwsRequest = #aws_request{uri = lists:flatten(URL),
-                                          method = Method,
-                                          request_headers = Headers,
-                                          request_body = Form},
-                erlcloud_retry:request(Config, AwsRequest, ResultFun)
-        end,
+    Response = erlcloud_retry:request(Config, AwsRequest, ResultFun),
 
     show_headers(ShowRespHeaders, request_to_return(Response)).
 
@@ -324,6 +337,20 @@ encode_params(Params, Headers) ->
     ?DEFAULT_CONTENT_TYPE -> {erlcloud_http:make_query_string(Params), LowerCaseHeaders};
     _ContentType -> {Params, LowerCaseHeaders}
   end.
+
+raw_xml_response(Body) ->
+    case format_xml_response(Body) of
+        {ok, XML} -> XML;
+        Error -> erlang:error(Error)
+    end.
+
+format_xml_response(Body) ->
+    try 
+        {ok, element(1, xmerl_scan:string(binary_to_list(Body)))}
+    catch
+        _:_ ->
+            {aws_error, {invalid_xml_response_document, Body}}
+    end.
 
 %%%---------------------------------------------------------------------------
 -spec default_config() -> aws_config().
@@ -493,7 +520,7 @@ auto_config() ->
 %% This function works the same as {@link auto_config/0}, but if credentials
 %% are developed from <em>User Profile</em> as the source, the
 %% <code>Options</code> parameter provided will be used to control the
-%% behavior.  The credential profile name choosen can be controlled by
+%% behavior.  The credential profile name chosen can be controlled by
 %% providing <code>{profile, atom()}</code> as part of the options, and if
 %% not specified the <code>default</code> profile will be used.
 %%
@@ -548,7 +575,7 @@ config_env() ->
         _ -> {error, environment_config_unavailable}
     end.
 
--spec config_metadata(task_credentials | instance_metadata) -> {ok, #metadata_credentials{}} | {error, metadata_not_available | container_credentials_unavailable | httpc_result_error()}.
+-spec config_metadata(task_credentials | instance_metadata) -> {ok, aws_config()} | {error, metadata_not_available | container_credentials_unavailable | httpc_result_error()}.
 config_metadata(Source) ->
     Config = #aws_config{},
     case get_metadata_credentials( Source, Config ) of
@@ -599,15 +626,17 @@ update_config(#aws_config{} = Config) ->
                    security_token = Credentials#metadata_credentials.security_token}}
     end.
 
+-dialyzer({no_return, clear_config/1}).
 -spec clear_config(aws_config()) -> ok.
 clear_config(#aws_config{assume_role = #aws_assume_role{role_arn = Arn, external_id = ExtId}}) ->
-    application:unset_env(erlcloud, {role_credentials, Arn, ExtId}).
+    unset_env_for_role_credentials(Arn, ExtId).
 
+-dialyzer({no_match, clear_expired_configs/0}).
 -spec clear_expired_configs() -> ok.
 clear_expired_configs() ->
     Env = application:get_all_env(erlcloud),
     Now = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
-    [application:unset_env(erlcloud, {role_credentials, Arn, ExtId}) ||
+    [unset_env_for_role_credentials(Arn, ExtId) ||
             {{role_credentials, Arn, ExtId},
               #role_credentials{expiration_gregorian_seconds = Ts}} <- Env,
         Ts < Now],
@@ -628,7 +657,7 @@ clear_expired_configs() ->
 %%
 %% If an invalid service name is provided, then this will throw an error,
 %% presuming that this is just a coding error.  This behavior allows the
-%% chaining of calls to this interface to allow concise configuraiton of a
+%% chaining of calls to this interface to allow concise configuration of a
 %% config for multiple services.
 %%
 service_config( Service, Region, Config ) when is_atom(Service) ->
@@ -639,6 +668,14 @@ service_config( Service, Region, Config ) when is_atom(Region) ->
     service_config( Service, atom_to_binary(Region, latin1), Config );
 service_config( Service, Region, Config ) when is_list(Region) ->
     service_config( Service, list_to_binary(Region), Config );
+service_config( <<"securityhub">> = Service, Region, Config ) ->
+    Host = service_host( Service, Region ),
+    Config#aws_config{securityhub_host = Host};
+service_config( <<"access_analyzer">>, Region, Config ) ->
+    service_config( <<"access-analyzer">>, Region, Config );
+service_config( <<"access-analyzer">> = Service, Region, Config ) ->
+    Host = service_host( Service, Region ),
+    Config#aws_config{access_analyzer_host = Host};
 service_config( <<"as">>, Region, Config ) ->
     service_config( <<"autoscaling">>, Region, Config );
 service_config( <<"autoscaling">> = Service, Region, Config ) ->
@@ -675,6 +712,9 @@ service_config( <<"ec2">> = Service, Region, Config ) ->
 service_config( <<"ecs">> = Service, Region, Config ) ->
     Host = service_host( Service, Region ),
     Config#aws_config{ ecs_host = Host };
+service_config( <<"efs">> = Service, Region, Config ) ->
+    Host = service_host( Service, Region ),
+    Config#aws_config{ efs_host = Host };
 service_config( <<"elasticloadbalancing">> = Service, Region, Config ) ->
     Host = service_host( Service, Region ),
     Config#aws_config{ elb_host = Host };
@@ -686,6 +726,9 @@ service_config( <<"elasticmapreduce">> = Service, Region, Config ) ->
 service_config( <<"emr">>, Region, Config ) ->
     service_config( <<"elasticmapreduce">>, Region, Config );
 service_config( <<"iam">> = Service, <<"cn-north-1">> = Region, Config ) ->
+    Host = service_host( Service, Region ),
+    Config#aws_config{ iam_host = Host };
+service_config( <<"iam">> = Service, <<"cn-northwest-1">> = Region, Config ) ->
     Host = service_host( Service, Region ),
     Config#aws_config{ iam_host = Host };
 service_config( <<"iam">>, _Region, Config ) -> Config;
@@ -735,6 +778,9 @@ service_config( <<"sdb">> = Service, Region, Config ) ->
 service_config( <<"ses">>, Region, Config ) ->
     Host = service_host( <<"email">>, Region ),
     Config#aws_config{ ses_host = Host };
+service_config( <<"sm">>, Region, Config) ->
+    Host = service_host( <<"secretsmanager">>, Region ),
+    Config#aws_config{ sm_host = Host };
 service_config( <<"sns">> = Service, Region, Config ) ->
     Host = service_host( Service, Region ),
     Config#aws_config{ sns_host = Host };
@@ -750,6 +796,9 @@ service_config( <<"glue">> = Service, Region, Config ) ->
 service_config( <<"athena">> = Service, Region, Config ) ->
     Host = service_host( Service, Region ),
     Config#aws_config{ athena_host = Host };
+service_config( <<"cognito_user_pools">> = Service, Region, Config ) ->
+  Host = service_host( Service, Region ),
+  Config#aws_config{ cognito_user_pools_host = Host };
 service_config( <<"states">> = Service, Region, Config ) ->
   Host = service_host( Service, Region ),
   Config#aws_config{ states_host = Host };
@@ -760,9 +809,22 @@ service_config(<<"cloudwatch_logs">>, Region, Config)->
     Host = service_host(<<"logs">>, Region),
     Config#aws_config{cloudwatch_logs_host = Host};
 service_config( <<"waf">>, _Region, Config ) -> Config;
+service_config( <<"guardduty">> = Service, Region, Config ) ->
+    Host = service_host( Service, Region ),
+    Config#aws_config{guardduty_host = Host};
 service_config( <<"cur">>, Region, Config ) ->
     Host = service_host(<<"cur">>, Region),
-    Config#aws_config{cur_host = Host}.
+    Config#aws_config{cur_host = Host};
+service_config( <<"application_autoscaling">>, Region, Config ) ->
+    Host = service_host(<<"application_autoscaling">>, Region),
+    Config#aws_config{application_autoscaling_host = Host};
+service_config( <<"workspaces">> = Service, Region, Config ) ->
+    Host = service_host(Service, Region),
+    Config#aws_config{workspaces_host = Host};
+service_config( <<"ssm">> = Service, Region, Config ) ->
+    Host = service_host(Service, Region),
+    Config#aws_config{ssm_host = Host}.
+
 
 %%%---------------------------------------------------------------------------
 -spec service_host( Service :: binary(),
@@ -774,17 +836,113 @@ service_config( <<"cur">>, Region, Config ) ->
 %% This function handles the special and general cases of service host
 %% names.
 %%
+service_host( <<"cognito_user_pools">>, Region ) ->
+    binary_to_list(<<"cognito-idp.", Region/binary, ".amazonaws.com">>);
 service_host( <<"s3">>, <<"us-east-1">> ) -> "s3-external-1.amazonaws.com";
+service_host( <<"s3">>, <<"us-gov-west-1">> ) -> "s3-fips-us-gov-west-1.amazonaws.com";
 service_host( <<"s3">>, <<"cn-north-1">> ) -> "s3.cn-north-1.amazonaws.com.cn";
-service_host( <<"s3">>, <<"us-gov-west-1">> ) ->
-    "s3-fips-us-gov-west-1.amazonaws.com";
+service_host( <<"s3">>, <<"cn-northwest-1">> ) -> "s3.cn-northwest-1.amazonaws.com.cn";
 service_host( <<"s3">>, Region ) ->
-    binary_to_list( <<"s3-", Region/binary, ".amazonaws.com">> );
+    binary_to_list( <<"s3.", Region/binary, ".amazonaws.com">> );
+service_host( <<"iam">>, <<"cn-north-1">> ) -> "iam.amazonaws.com.cn";
+service_host( <<"iam">>, <<"cn-northwest-1">> ) -> "iam.amazonaws.com.cn";
 service_host( <<"sdb">>, <<"us-east-1">> ) -> "sdb.amazonaws.com";
-service_host( <<"states">>, Region ) ->
-    binary_to_list( <<"states.", Region/binary, ".amazonaws.com">> );
-service_host( Service, Region ) when is_binary(Service) ->
-    binary_to_list( <<Service/binary, $., Region/binary, ".amazonaws.com">> ).
+service_host( Service, <<"cn-north-1">> = Region ) when is_binary(Service) ->
+    binary_to_list( <<Service/binary, $., Region/binary, ".amazonaws.com.cn">> );
+service_host( Service, <<"cn-northwest-1">> = Region ) when is_binary(Service) ->
+    binary_to_list( <<Service/binary, $., Region/binary, ".amazonaws.com.cn">> );
+service_host( Service, Region ) when is_binary(Service) andalso is_binary(Region) ->
+    Default = <<Service/binary, $., Region/binary, ".amazonaws.com">>,
+    binary_to_list(get_host_vpc_endpoint(Service, Default)).
+
+-spec get_host_vpc_endpoint(binary(), binary()) -> binary().
+% some services can have VPCe configured and we allow to mitigate cross-AZ traffic.
+% It's application level decision to use VPCe and configure those.
+% magic can be done via EC2 DescribeVpcEndpoints/filter by VPC/filter by AZ.
+% however, permissions and describe* API throttling is not what we want to deal with here.
+get_host_vpc_endpoint(Service, Default) when is_binary(Service) ->
+    VPCEndpointsByService = get_vpc_endpoints(),
+    ConfiguredEndpoints = proplists:get_value(Service, VPCEndpointsByService, []),
+    %% resolve through ENV if any
+    Endpoints = case ConfiguredEndpoints of
+        {env, EnvVarName} when is_list(EnvVarName) ->
+            % ignore "" env var or ",," cases
+            % also handle "zoneID:zoneName" form when it comes from CFN
+            Es = string_split(os:getenv(EnvVarName, ""), ","),
+            lists:filtermap(
+                fun ("") -> false;
+                    (Value) ->
+                        case string_split(Value, ":") of
+                            [_Id, Name] -> {true, list_to_binary(Name)};
+                            [Name] -> {true, list_to_binary(Name)}
+                        end
+                end,
+                Es
+            );
+        EndpointsList when is_list(EndpointsList) ->
+            EndpointsList
+    end,
+    % now match our AZ to configured ones
+    pick_vpc_endpoint(Endpoints, Default).
+
+-ifdef(AT_LEAST_20).
+string_split(String, Char) ->
+    string:split(String, Char, all).
+-else.
+string_split(String, Char) ->
+    Subject = list_to_binary(String),
+    Pattern = list_to_binary(Char),
+    Options = [global],
+    [binary_to_list(Elem) || Elem <- binary:split(Subject, Pattern, Options)].
+-endif.
+
+pick_vpc_endpoint([], Default) -> Default;
+pick_vpc_endpoint(Endpoints, Default) ->
+    case get_availability_zone() of
+        {ok, AZ} ->
+            lists:foldl(
+                fun (E , Acc) ->
+                    case {binary:match(E, AZ), Acc == Default} of
+                        {nomatch, _} -> Acc;
+                        % take only the first one if smb provided duplicates
+                        {_, true} -> E;
+                        % was previously set
+                        {_, false} -> Acc
+                    end
+                end,
+                Default,
+                Endpoints
+            );
+        {error, _} ->
+            Default
+    end.
+
+-spec get_vpc_endpoints() -> list({binary(), binary()}).
+get_vpc_endpoints() ->
+    application:get_env(erlcloud, services_vpc_endpoints, []).
+
+-spec get_availability_zone() -> {ok, binary()} | {error, term()}.
+get_availability_zone() ->
+    case application:get_env(erlcloud, availability_zone) of
+        {ok, AZ} = OkResult when is_binary(AZ) ->
+            OkResult;
+        _ ->
+            cache_instance_metadata_availability_zone()
+    end.
+
+-spec cache_instance_metadata_availability_zone() -> {ok, binary()} | {error, term()}.
+cache_instance_metadata_availability_zone() ->
+    % it fine to use default here - no IAM is used, only for http client
+    % one cannot use auto_config()/default_cfg() as it creates an infinite recursion.
+    Config = #aws_config{},
+    IMDSv2Token = maybe_imdsv2_session_token(Config),
+    case erlcloud_ec2_meta:get_instance_metadata("placement/availability-zone", Config, IMDSv2Token) of
+        {ok, AZ} = OkResult ->
+            application:set_env(erlcloud, availability_zone, AZ),
+            OkResult;
+        {error, _} = Error ->
+            Error
+    end.
 
 -spec configure(aws_config()) -> {ok, aws_config()}.
 
@@ -821,17 +979,18 @@ timestamp_to_gregorian_seconds(Timestamp) ->
 get_credentials_from_metadata(Config) ->
     %% TODO this function should retry on errors getting credentials
     %% First get the list of roles
-    case erlcloud_ec2_meta:get_instance_metadata("iam/security-credentials/", Config) of
+    IMDSv2Token = maybe_imdsv2_session_token(Config),
+    case erlcloud_ec2_meta:get_instance_metadata("iam/security-credentials/", Config, IMDSv2Token) of
         {error, Reason} ->
             {error, Reason};
         {ok, Body} ->
             %% Always use the first role
             [Role | _] = binary:split(Body, <<$\n>>),
-            case erlcloud_ec2_meta:get_instance_metadata("iam/security-credentials/" ++ binary_to_list(Role), Config) of
+            case erlcloud_ec2_meta:get_instance_metadata("iam/security-credentials/" ++ binary_to_list(Role), Config, IMDSv2Token) of
                 {error, Reason} ->
                     {error, Reason};
                 {ok, Json} ->
-                    Creds = jsx:decode(Json),
+                    Creds = jsx:decode(Json, [{return_maps, false}]),
                     get_credentials_from_metadata_xform( Creds )
             end
     end.
@@ -844,7 +1003,7 @@ get_credentials_from_task_metadata(Config) ->
         {error, Reason} ->
             {error, Reason};
         {ok, Json} ->
-            Creds = jsx:decode(Json),
+            Creds = jsx:decode(Json, [{return_maps, false}]),
             get_credentials_from_metadata_xform( Creds )
     end.
 
@@ -873,12 +1032,10 @@ prop_to_list_defined( Name, Props ) ->
     end.
 
 
+-dialyzer({no_return, get_role_credentials/1}).
 -spec get_role_credentials(aws_config()) -> {ok, #role_credentials{}}.
 get_role_credentials(#aws_config{assume_role = AssumeRole} = Config) ->
-    case application:get_env(erlcloud,
-                             {role_credentials,
-                              AssumeRole#aws_assume_role.role_arn,
-                              AssumeRole#aws_assume_role.external_id}) of
+    case get_env_for_role_credentials(AssumeRole#aws_assume_role.role_arn, AssumeRole#aws_assume_role.external_id) of
         {ok, #role_credentials{expiration_gregorian_seconds = Expiration} = Credentials} ->
             Now = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
             %% Get new credentials if these will expire in less than 5 minutes
@@ -890,6 +1047,7 @@ get_role_credentials(#aws_config{assume_role = AssumeRole} = Config) ->
             get_credentials_from_role(Config)
     end.
 
+-compile({nowarn_unused_function, get_credentials_from_role/1}).
 -spec get_credentials_from_role(aws_config()) -> {ok, #role_credentials{}}.
 get_credentials_from_role(#aws_config{assume_role = AssumeRole} = Config) ->
     %% We have to reset the assume role to make sure we do not
@@ -908,11 +1066,7 @@ get_credentials_from_role(#aws_config{assume_role = AssumeRole} = Config) ->
         secret_access_key = proplists:get_value(secret_access_key, Creds),
         session_token = proplists:get_value(session_token, Creds),
         expiration_gregorian_seconds = ExpireAt},
-    application:set_env(erlcloud,
-                        {role_credentials,
-                         AssumeRole#aws_assume_role.role_arn,
-                         AssumeRole#aws_assume_role.external_id},
-                        Record),
+    set_env_for_role_credentials(AssumeRole#aws_assume_role.role_arn, AssumeRole#aws_assume_role.external_id, Record),
     {ok, Record}.
 
 port_to_str(Port) when is_integer(Port) ->
@@ -947,6 +1101,33 @@ get_timeout(#aws_config{timeout = undefined}) ->
 get_timeout(#aws_config{timeout = Timeout}) ->
     Timeout.
 
+%% Construct the URI and body for an AWS request based on the Method, Form, and
+%% QueryString: if the request is a read/delete, join Form and QueryString in
+%% the URI and give an empty body; otherwise, pass the Form in the Body and
+%% the QueryString in the URI.
+aws_request_form_uri_and_body(Method, URL, Form, QueryString) when Method =:= delete;
+                                                                   Method =:= get;
+                                                                   Method =:= head ->
+    URI = make_uri(URL, join_query_strings([Form, QueryString])),
+    {URI, <<>>};
+aws_request_form_uri_and_body(_M, URL, Form, QueryString) ->
+    URI = make_uri(URL, QueryString),
+    {URI, Form}.
+
+
+%% Given a URL and a QueryString, combine them together appropriately (drop the
+%% QueryString if empty).
+make_uri(URL, QueryString) when QueryString =:= <<>>; QueryString == [] ->
+    lists:flatten(URL);
+make_uri(URL, QueryString) ->
+    lists:flatten([URL, $?, QueryString]).
+
+
+%% Join a list of query strings together with `&', filtering out empty ones.
+join_query_strings(QueryStrings) ->
+    lists:join($&, [QS || QS <- QueryStrings, QS /= <<>>, QS /= []]).
+
+
 %% Convert an aws_request record to return value as returned by http_headers_body
 request_to_return(#aws_request{response_type = ok,
                                response_headers = Headers,
@@ -965,11 +1146,11 @@ request_to_return(#aws_request{response_type = error,
     {error, {http_error, Status, StatusLine, Body, Headers}}.
 
 %% http://docs.aws.amazon.com/general/latest/gr/signature-version-4.html
--spec sign_v4_headers(aws_config(), headers(), string() | binary(), string(), string()) -> headers().
+-spec sign_v4_headers(aws_config(), erlcloud_httpc:headers(), string() | binary(), string(), string()) -> erlcloud_httpc:headers().
 sign_v4_headers(Config, Headers, Payload, Region, Service) ->
     sign_v4(post, "/", Config, Headers, Payload, Region, Service, []).
 
--spec sign_v4(atom(), list(), aws_config(), headers(), string() | binary(), string(), string(), list()) -> headers().
+-spec sign_v4(atom(), list(), aws_config(), erlcloud_httpc:headers(), string() | binary(), string(), string(), list()) -> erlcloud_httpc:headers().
 sign_v4(Method, Uri, Config, Headers, Payload, Region, Service, QueryParams) ->
     Date = iso_8601_basic_time(),
     {PayloadHash, Headers1} =
@@ -1026,16 +1207,26 @@ canonical_headers(Headers) ->
     {Canonical, Signed}.
 
 %% @doc calculate canonical query string out of query params and according to v4 documentation
+-spec canonical_query_string(Params) -> String
+when Params :: [{Name, Value}],
+     Name :: atom() | string() | binary(),
+     Value :: atom() | string() | binary() | integer(),
+     String :: string().
 canonical_query_string([]) ->
     "";
 canonical_query_string(Params) ->
-    Normalized = [{erlcloud_http:url_encode(Name), erlcloud_http:url_encode(erlcloud_http:value_to_string(Value))} || {Name, Value} <- Params],
-    Sorted = lists:keysort(1, Normalized),
-    string:join([case Value of
-                     [] -> [Key, "="];
-                     _ -> [Key, "=", Value]
-                 end
-                 || {Key, Value} <- Sorted, Value =/= none, Value =/= undefined], "&").
+    Encoded = [encode_param(Name, Value) || {Name, Value} <- Params],
+    Sorted = lists:sort(Encoded),
+    string:join(Sorted, "&").
+
+encode_param(Name, Value) ->
+    EncodedName = erlcloud_http:url_encode(erlcloud_http:value_to_string(Name)),
+    case erlcloud_http:url_encode(erlcloud_http:value_to_string(Value)) of
+        "" ->
+            EncodedName ++ "=";
+        EncodedValue ->
+            EncodedName ++ "=" ++ EncodedValue
+    end.
 
 trimall(Value) ->
     %% TODO - remove excess internal whitespace in header values
@@ -1095,7 +1286,7 @@ get_service_status(ServiceNames) when is_list(ServiceNames) ->
         "/data.json", "", [], default_config()),
 
     case get_filtered_statuses(ServiceNames,
-            proplists:get_value(<<"current">>, jsx:decode(Json)))
+            proplists:get_value(<<"current">>, jsx:decode(Json, [{return_maps, false}])))
     of
         [] -> ok;
         ReturnStatuses -> ReturnStatuses
@@ -1126,7 +1317,7 @@ is_throttling_error_response(RequestResponse) ->
          error_type = aws,
          response_body = RespBody} = RequestResponse,
 
-    case binary:match(RespBody, <<"Throttling">>) of
+    case binary:match(RespBody, <<"Throttl">>) of
         nomatch ->
             false;
         _ ->
@@ -1163,7 +1354,7 @@ profile( Name ) ->
 
 
 -type profile_option() :: {role_session_name, string()}
-                          | {role_session_secs, 900..3600}.
+                          | {role_session_secs, 900..43200}.
 
 %%%---------------------------------------------------------------------------
 -spec profile( Name :: atom(), Options :: [profile_option()] ) ->
@@ -1189,8 +1380,8 @@ profile( Name ) ->
 %%  source_profile = default
 %% </pre></code>
 %%
-%% and finally, will supports the <em>role_arn</em> specification, and will
-%% assume the role indicated using the credentials current when interpreting
+%% Finally, it supports the <em>role_arn</em> specification, and will
+%% assume the role indicated using the current credentials when interpreting
 %% the profile in which they it is declared:
 %%
 %% <code><pre>
@@ -1199,7 +1390,7 @@ profile( Name ) ->
 %%  source_profile = default
 %% </pre></code>
 %%
-%% When using the the <em>role_arn</em> specification, you may supply the
+%% When using the <em>role_arn</em> specification, you may supply the
 %% following two options to control the way in which the assume_role request
 %% is made via AWS STS service:
 %%
@@ -1216,7 +1407,7 @@ profile( Name ) ->
 %%  </li>
 %%  <li><code>'external_id'</code>
 %%    <p>The identifier that is used in the <code>ExternalId</code>
-%%    parameter.  If this option is not specified, then it will default to
+%%    parameter.  If this option isn't specified, then it will default to
 %%    'undefined', which will work for normal in-account roles, but will
 %%    need to be specified for roles in external accounts.</p>
 %%  </li>
@@ -1351,3 +1542,36 @@ error_msg( Message ) ->
 error_msg( Format, Values ) ->
     Error = iolist_to_binary( io_lib:format( Format, Values ) ),
     throw( {error, Error} ).
+
+-dialyzer({nowarn_function, unset_env_for_role_credentials/2}).
+-spec unset_env_for_role_credentials(Arn, ExtId) -> ok
+      when Arn :: string() | undefined,
+           ExtId :: string() | undefined.
+unset_env_for_role_credentials(Arn, ExtId) ->
+     % application:unset_env is undocumented in regards to type(Par) =/= atom()
+    application:unset_env(erlcloud, {role_credentials, Arn, ExtId}).
+
+-dialyzer({nowarn_function, get_env_for_role_credentials/2}).
+-spec get_env_for_role_credentials(Arn, ExtId) -> undefined | {ok, Val}
+      when Arn :: string() | undefined,
+           ExtId :: string() | undefined,
+           Val :: term().
+get_env_for_role_credentials(Arn, ExtId) ->
+    % application:get_env is undocumented in regards to type(Par) =/= atom()
+    application:get_env(erlcloud, {role_credentials, Arn, ExtId}).
+
+-dialyzer({nowarn_function, set_env_for_role_credentials/3}).
+-spec set_env_for_role_credentials(Arn, ExtId, Val) -> ok
+      when Arn :: string() | undefined,
+           ExtId :: string() | undefined,
+           Val :: term().
+set_env_for_role_credentials(Arn, ExtId, Val) ->
+    % application:set_env is undocumented in regards to type(Par) =/= atom()
+    application:set_env(erlcloud, {role_credentials, Arn, ExtId}, Val).
+
+-spec maybe_imdsv2_session_token(aws_config()) -> binary() | undefined.
+maybe_imdsv2_session_token(Config) ->
+    case erlcloud_ec2_meta:generate_session_token(60, Config) of
+        {ok, Token} -> Token;
+        _Error -> undefined
+    end.

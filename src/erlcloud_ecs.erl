@@ -62,6 +62,7 @@
          list_clusters/0, list_clusters/1, list_clusters/2,
          list_container_instances/0, list_container_instances/1, list_container_instances/2,
          list_services/0, list_services/1, list_services/2,
+         list_tags_for_resource/1, list_tags_for_resource/2, list_tags_for_resource/3,
          list_task_definition_families/0, list_task_definition_families/1, list_task_definition_families/2,
          list_task_definitions/0, list_task_definitions/1, list_task_definitions/2,
          list_tasks/0, list_tasks/1, list_tasks/2,
@@ -678,7 +679,8 @@ container_definition_opts() ->
         {working_directory, <<"workingDirectory">>, fun to_binary/1}
     ].
 
--spec encode_container_definitions(Defs :: container_definition_opts()) -> [aws_opts()].
+-spec encode_container_definitions(Defs :: container_definition_opts()
+                                         | [container_definition_opts()]) -> [aws_opts()].
 encode_container_definitions(Defs) ->
     encode_maybe_list(fun container_definition_opts/0, Defs).
     
@@ -1040,16 +1042,51 @@ network_binding_record() ->
         ]
     }.
 
+-spec network_interface_record() -> record_desc().
+network_interface_record() ->
+    {#ecs_network_interface{},
+        [
+            {<<"attachmentId">>, #ecs_network_interface.attachment_id, fun id/2},
+            {<<"privateIpv4Address">>, #ecs_network_interface.private_ipv4_address, fun id/2}
+        ]
+    }.
+
+-spec attachment_record() -> record_desc().
+attachment_record() ->
+    {#ecs_attachment{},
+        [
+            {<<"id">>, #ecs_attachment.id, fun id/2},
+            {<<"type">>, #ecs_attachment.type, fun id/2},
+            {<<"status">>, #ecs_attachment.status, fun id/2},
+            {<<"details">>, #ecs_attachment.details, fun decode_attachment_details_list/2}
+        ]
+    }.
+
+-spec attachment_detail_record() -> record_desc().
+attachment_detail_record() ->
+    {#ecs_attachment_detail{},
+        [
+            {<<"name">>, #ecs_attachment_detail.name, fun id/2},
+            {<<"value">>, #ecs_attachment_detail.value, fun id/2}
+        ]
+    }.
+
 -spec container_record() -> record_desc().
 container_record() ->
     {#ecs_container{},
         [
             {<<"containerArn">>, #ecs_container.container_arn, fun id/2},
+            {<<"cpu">>, #ecs_container.cpu, fun id/2},
             {<<"exitCode">>, #ecs_container.exit_code, fun id/2},
+            {<<"healthStatus">>, #ecs_container.health_status, fun id/2},
+            {<<"image">>, #ecs_container.image, fun id/2},
             {<<"lastStatus">>, #ecs_container.last_status, fun id/2},
+            {<<"memoryReservation">>, #ecs_container.memory_reservation, fun id/2},
             {<<"name">>, #ecs_container.name, fun id/2},
             {<<"networkBindings">>, #ecs_container.network_bindings, fun decode_network_bindings_list/2},
+            {<<"networkInterfaces">>, #ecs_container.network_interfaces, fun decode_network_interfaces_list/2},
             {<<"reason">>, #ecs_container.reason, fun id/2},
+            {<<"runtimeId">>, #ecs_container.runtime_id, fun id/2},
             {<<"taskArn">>, #ecs_container.task_arn, fun id/2}
         ]
     }.
@@ -1073,23 +1110,46 @@ task_override_record() ->
         ]
     }.
 
+-spec tag_record() -> record_desc().
+tag_record() ->
+    {#ecs_tag{},
+        [
+            {<<"key">>, #ecs_tag.key, fun id/2},
+            {<<"value">>, #ecs_tag.value, fun id/2}
+        ]
+    }.
+
 -spec task_record() -> record_desc().
 task_record() ->
     {#ecs_task{},
         [
+            {<<"attachments">>, #ecs_task.attachments, fun decode_attachments_list/2},
+            {<<"availabilityZone">>, #ecs_task.availability_zone, fun id/2},
             {<<"clusterArn">>, #ecs_task.cluster_arn, fun id/2},
+            {<<"connectivity">>, #ecs_task.connectivity, fun id/2},
+            {<<"connectivityAt">>, #ecs_task.connectivity_at, fun id/2},
             {<<"containerInstanceArn">>, #ecs_task.container_instance_arn, fun id/2},
             {<<"containers">>, #ecs_task.containers, fun decode_containers_list/2},
+            {<<"cpu">>, #ecs_task.cpu, fun id/2},
             {<<"createdAt">>, #ecs_task.created_at, fun id/2},
             {<<"desiredStatus">>, #ecs_task.desired_status, fun id/2},
+            {<<"group">>, #ecs_task.group, fun id/2},
+            {<<"healthStatus">>, #ecs_task.health_status, fun id/2},
             {<<"lastStatus">>, #ecs_task.last_status, fun id/2},
+            {<<"launchType">>, #ecs_task.launch_type, fun id/2},
+            {<<"memory">>, #ecs_task.memory, fun id/2},
             {<<"overrides">>, #ecs_task.overrides, fun decode_task_overrides/2},
+            {<<"platformVersion">>, #ecs_task.platform_version, fun id/2},
+            {<<"pullStartedAt">>, #ecs_task.pull_started_at, fun id/2},
+            {<<"pullStoppedAt">>, #ecs_task.pull_stopped_at, fun id/2},
             {<<"startedAt">>, #ecs_task.started_at, fun id/2},
             {<<"startedBy">>, #ecs_task.started_by, fun id/2},
             {<<"stoppedAt">>, #ecs_task.stopped_at, fun id/2},
             {<<"stoppedReason">>, #ecs_task.stopped_reason, fun id/2},
+            {<<"tags">>, #ecs_task.tags, fun decode_tags_list/2},
             {<<"taskArn">>, #ecs_task.task_arn, fun id/2},
-            {<<"taskDefinitionArn">>, #ecs_task.task_definition_arn, fun id/2}
+            {<<"taskDefinitionArn">>, #ecs_task.task_definition_arn, fun id/2},
+            {<<"version">>, #ecs_task.version, fun id/2}
         ]
     }.
 
@@ -1159,14 +1219,26 @@ decode_volumes_from_list(V, Opts) ->
 decode_tasks_list(V, Opts) ->
     [decode_record(task_record(), I, Opts) || I <- V].
 
+decode_attachments_list(V, Opts) ->
+    [decode_record(attachment_record(), I, Opts) || I <- V].
+
+decode_attachment_details_list(V, Opts) ->
+    [decode_record(attachment_detail_record(), I, Opts) || I <- V].
+
 decode_containers_list(V, Opts) ->
     [decode_record(container_record(), I, Opts) || I <- V].
 
 decode_network_bindings_list(V, Opts) ->
     [decode_record(network_binding_record(), I, Opts) || I <- V].
 
+decode_network_interfaces_list(V, Opts) ->
+    [decode_record(network_interface_record(), I, Opts) || I <- V].
+
 decode_task_overrides(V, Opts) ->
     decode_record(task_override_record(), V, Opts).
+
+decode_tags_list(V, Opts) ->
+    [decode_record(tag_record(), I, Opts) || I <- V].
 
 decode_container_overrides_list(V, Opts) ->
     [decode_record(container_override_record(), I, Opts) || I <- V].
@@ -1177,7 +1249,8 @@ decode_container_overrides_list(V, Opts) ->
 %%%------------------------------------------------------------------------------
 %% CreateCluster
 %%%------------------------------------------------------------------------------
--type create_cluster_opt() :: {cluster_name, string_param()}.
+-type create_cluster_opt() :: {cluster_name, string_param()} |
+                              out_opt().
 -type create_cluster_opts() :: [create_cluster_opt()].
 
 -spec create_cluster_opts() -> opt_table().
@@ -1227,7 +1300,8 @@ create_cluster(Opts, #aws_config{} = Config) ->
                               cluster_opt() |
                               deployment_configuration() |
                               load_balancers_opt() |
-                              role_opt().
+                              role_opt() |
+                              out_opt().
 -type create_service_opts() :: [create_service_opt()].
 
 -spec create_service_opts() -> opt_table().
@@ -1329,7 +1403,8 @@ delete_cluster(ClusterName, Opts, #aws_config{} = Config) ->
 %%%------------------------------------------------------------------------------
 %% DeleteService
 %%%------------------------------------------------------------------------------
--type delete_service_opt() :: {cluster, string_param()}.
+-type delete_service_opt() :: {cluster, string_param()} |
+                              out_opt().
 -type delete_service_opts() :: [delete_service_opt()].
 
 -spec delete_service_opts() -> opt_table().
@@ -1381,7 +1456,8 @@ delete_service(ServiceName, Opts, #aws_config{} = Config) ->
 %% DeregisterContainerInstance
 %%%------------------------------------------------------------------------------
 -type deregister_container_instance_opt() :: {cluster, string_param()} |
-                                             {force, boolean()}.
+                                             {force, boolean()} |
+                                             out_opt().
 -type deregister_container_instance_opts() :: [deregister_container_instance_opt()].
 
 -spec deregister_container_instance_opts() -> opt_table().
@@ -1483,7 +1559,8 @@ deregister_task_definition(TaskDefinition, Opts, Config) ->
 %%%------------------------------------------------------------------------------
 %% DescribeClusters
 %%%------------------------------------------------------------------------------
--type describe_clusters_opt() :: {clusters, [string_param()]}.
+-type describe_clusters_opt() :: {clusters, [string_param()]} |
+                                 out_opt().
 -type describe_clusters_opts() :: [describe_clusters_opt()].
 
 -spec describe_clusters_opts() -> opt_table().
@@ -1536,7 +1613,8 @@ describe_clusters(Opts, #aws_config{} = Config) ->
 %%%------------------------------------------------------------------------------
 %% DescribeContainerInstances
 %%%------------------------------------------------------------------------------
--type describe_container_instances_opt() :: {cluster, string_param()}.
+-type describe_container_instances_opt() :: {cluster, string_param()} |
+                                            out_opt().
 -type describe_container_instances_opts() :: [describe_container_instances_opt()].
 
 -spec describe_container_instances_opts() -> opt_table().
@@ -1594,7 +1672,8 @@ describe_container_instances(Instances, Opts, #aws_config{} = Config) ->
 %%%------------------------------------------------------------------------------
 %% DescribeServices
 %%%------------------------------------------------------------------------------
--type describe_services_opt() :: {cluster, string_param()}.
+-type describe_services_opt() :: {cluster, string_param()} |
+                                 out_opt().
 -type describe_services_opts() :: [describe_services_opt()].
 
 -spec describe_services_opts() -> opt_table().
@@ -1696,13 +1775,16 @@ describe_task_definition(TaskDefinition, Opts, #aws_config{} = Config) ->
 %%%------------------------------------------------------------------------------
 %% DescribeTasks
 %%%------------------------------------------------------------------------------
--type describe_tasks_opt() :: {cluster, string_param()}.
+-type describe_tasks_opt() :: {cluster, string_param()} |
+                              {include, list(string_param())} | 
+                              out_opt().
 -type describe_tasks_opts() :: [describe_tasks_opt()].
 
 -spec describe_tasks_opts() -> opt_table().
 describe_tasks_opts() ->
     [
-        {cluster, <<"cluster">>, fun to_binary/1}
+        {cluster, <<"cluster">>, fun to_binary/1},
+        {include, <<"include">>, fun to_binary/1}
     ].
 
 -spec describe_tasks_record() -> record_desc().
@@ -1756,7 +1838,8 @@ describe_tasks(Tasks, Opts, #aws_config{} = Config) ->
 %% ListClusters 
 %%%------------------------------------------------------------------------------
 -type list_clusters_opt() :: {max_results, 1..100} | 
-                             {next_token, binary()}.
+                             {next_token, binary()} |
+                             out_opt().
 
 -type list_clusters_opts() :: [list_clusters_opt()].
 
@@ -1808,7 +1891,8 @@ list_clusters(Opts, Config) ->
 %%%------------------------------------------------------------------------------
 -type list_container_instances_opt() :: {cluster, string_param()} |
                                         {max_results, 1..100} |
-                                        {next_token, binary()}.
+                                        {next_token, binary()} |
+                                        out_opt().
 
 -type list_container_instances_opts() :: [list_container_instances_opt()].
 
@@ -1861,7 +1945,8 @@ list_container_instances(Opts, Config) ->
 %%%------------------------------------------------------------------------------
 -type list_services_opt() :: {cluster, string_param()} |
                                         {max_results, 1..100} |
-                                        {next_token, binary()}.
+                                        {next_token, binary()} |
+                                        out_opt().
 
 -type list_services_opts() :: [list_services_opt()].
 
@@ -1910,12 +1995,58 @@ list_services(Opts, Config) ->
         EcsOpts).
 
 %%%------------------------------------------------------------------------------
+%% ListTagsForResource
+%%%------------------------------------------------------------------------------
+-spec list_tags_for_resource(
+        Arn :: string_param()) -> ecs_return([#ecs_tag{}]).
+list_tags_for_resource(Arn) ->
+    list_tags_for_resource(Arn, [], default_config()).
+
+-spec list_tags_for_resource(
+        Arn :: string_param(),
+        Config :: aws_config()) -> ecs_return([#ecs_tag{}]).
+list_tags_for_resource(Arn, Config) when is_record(Config, aws_config) ->
+    list_tags_for_resource(Arn, [], default_config()).
+
+%%%------------------------------------------------------------------------------
+%% @doc 
+%% ECS API
+%% [https://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_ListTagsForResource.html]
+%%
+%% ===Example===
+%%
+%% List tags for a given resource
+%%
+%% `
+%% {ok, Result} = erlcloud_ecs:list_tags_for_resource("resource-arn"),
+%% '
+%% @end
+%%%------------------------------------------------------------------------------
+-spec list_tags_for_resource(
+        Arn :: string_param(),
+        Opts :: proplist(),
+        Config :: aws_config()) -> ecs_return([#ecs_tag{}]).
+list_tags_for_resource(Arn, Opts, #aws_config{} = Config) ->
+    {AwsOpts, EcsOpts} = opts([], Opts),
+    Return = ecs_request(
+                Config,
+                "ListTagsForResource",
+                [{<<"resourceArn">>, to_binary(Arn)}] ++ AwsOpts),
+    out(Return, fun(Json, UOpts) -> 
+                        TagsList = proplists:get_value(<<"tags">>, Json),
+                        decode_tags_list(TagsList, UOpts)
+                end,
+        EcsOpts).
+
+
+%%%------------------------------------------------------------------------------
 %% ListTaskDefinitionFamilies
 %%%------------------------------------------------------------------------------
 -type list_task_definition_families_opt() :: {family_prefix, string_param()} |
                                              {status, active | inactive | all} |
                                              {max_results, 1..100} |
-                                             {next_token, binary()}.
+                                             {next_token, binary()} |
+                                        out_opt().
 
 -type list_task_definition_families_opts() :: [list_task_definition_families_opt()].
 
@@ -1975,7 +2106,8 @@ list_task_definition_families(Opts, Config) ->
                                      {status, active | inactive} |
                                      {sort, asc | desc} |
                                      {max_results, 1..100} |
-                                     {next_token, binary()}.
+                                     {next_token, binary()} |
+                                     out_opt().
 
 -type list_task_definitions_opts() :: [list_task_definitions_opt()].
 
@@ -2036,7 +2168,9 @@ list_task_definitions(Opts, Config) ->
                           {family, string_param()} |
                           {sort, asc | desc} |
                           {max_results, 1..100} |
-                          {next_token, binary()}.
+                          {next_token, binary()} |
+                          {launch_type, string_param()} |
+                          out_opt().
 
 -type list_tasks_opts() :: [list_tasks_opt()].
 
@@ -2051,6 +2185,7 @@ list_tasks_opts() ->
         {service_name, <<"serviceName">>, fun to_binary/1},
         {started_by, <<"startedBy">>, fun to_binary/1},
         {max_results, <<"maxResults">>, fun id/1},
+        {launch_type, <<"launchType">>, fun to_binary/1},
         {next_token, <<"nextToken">>, fun to_binary/1}
     ].
 
@@ -2097,7 +2232,8 @@ list_tasks(Opts, Config) ->
 %%%------------------------------------------------------------------------------
 -type register_task_definition_opt() :: {network_mode, ecs_network_mode()} |
                                         {task_role_arn, string_param()} |
-                                        volumes().
+                                        volumes() |
+                                        out_opt().
 -type register_task_definition_opts() :: [register_task_definition_opt()].
 
 -spec register_task_definition_opts() -> opt_table().
@@ -2163,8 +2299,9 @@ register_task_definition(ContainerDefinitions, Family, Opts, Config) ->
 -type run_task_opt() :: {cluster, string_param()} |
                         {count, pos_integer()} |
                         task_overrides_opt() |
-                        placement_strategy_opt() |
-                        {started_by, string_param()}.
+                        placement_strategy() |
+                        {started_by, string_param()} |
+                        out_opt().
 
 -type run_task_opts() :: [run_task_opt()].
 -spec run_task_opts() -> opt_table().
@@ -2227,7 +2364,8 @@ run_task(TaskDefinition, Opts, Config) ->
 %%%------------------------------------------------------------------------------
 -type start_task_opt() :: {cluster, string_param()} |
                           task_overrides_opt() |
-                          {started_by, string_param()}.
+                          {started_by, string_param()} |
+                          out_opt().
 
 -type start_task_opts() :: [start_task_opt()].
 -spec start_task_opts() -> opt_table().
@@ -2295,7 +2433,8 @@ start_task(TaskDefinition, ContainerInstances, Opts, Config) ->
 %% StopTask
 %%%------------------------------------------------------------------------------
 -type stop_task_opt() :: {cluster, string_param()} |
-                         {reason, string_param()}.
+                         {reason, string_param()} |
+                         out_opt().
 -type stop_task_opts() :: [stop_task_opt()].
 -spec stop_task_opts() -> opt_table().
 stop_task_opts() ->
@@ -2342,7 +2481,7 @@ stop_task(Task, Opts, #aws_config{} = Config) ->
 %%%------------------------------------------------------------------------------
 %% UpdateContainerAgent 
 %%%------------------------------------------------------------------------------
--type update_container_agent_opts() :: [{cluster, string_param()}].
+-type update_container_agent_opts() :: [{cluster, string_param()} | out_opt()].
 -spec update_container_agent_opts() -> opt_table().
 update_container_agent_opts() ->
     [{cluster, <<"cluster">>, fun to_binary/1}].
@@ -2393,7 +2532,8 @@ update_container_agent(ContainerInstance, Opts, Config) ->
 -type update_service_opt() :: {cluster, string_param()} |
                               deployment_configuration() |
                               {desired_count, pos_integer()} |
-                              {task_definition, string_param()}.
+                              {task_definition, string_param()} |
+                              out_opt().
 -type update_service_opts() :: [update_service_opt()].
 -spec update_service_opts() -> opt_table().
 update_service_opts() ->
@@ -2466,7 +2606,7 @@ ecs_request_no_update(Config, Operation, Body) ->
                            request_body = Payload},
     case erlcloud_aws:request_to_return(erlcloud_retry:request(Config, Request, fun ecs_result_fun/1)) of
         {ok, {_RespHeaders, <<>>}} -> {ok, []};
-        {ok, {_RespHeaders, RespBody}} -> {ok, jsx:decode(RespBody)};
+        {ok, {_RespHeaders, RespBody}} -> {ok, jsx:decode(RespBody, [{return_maps, false}])};
         {error, _} = Error-> Error
     end.
 
@@ -2500,6 +2640,7 @@ to_binary(undefined) -> undefined;
 to_binary(true) -> true;
 to_binary(false) -> false;
 to_binary(L) when is_list(L), is_list(hd(L)) -> [to_binary(V) || V <- L];
+to_binary(L) when is_list(L), is_binary(hd(L)) -> [to_binary(V) || V <- L];
 to_binary(L) when is_list(L) -> list_to_binary(L);
 to_binary(B) when is_binary(B) -> B;
 to_binary(A) when is_atom(A) -> atom_to_binary(A, latin1).

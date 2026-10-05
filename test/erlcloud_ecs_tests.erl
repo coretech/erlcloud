@@ -64,6 +64,8 @@ operation_test_() ->
       fun list_container_instances_output_tests/1,
       fun list_services_input_tests/1,
       fun list_services_output_tests/1,
+      fun list_tags_for_resource_input_tests/1,
+      fun list_tags_for_resource_output_tests/1,
       fun list_task_definition_families_input_tests/1,
       fun list_task_definition_families_output_tests/1,
       fun list_task_definitions_input_tests/1,
@@ -1319,7 +1321,7 @@ describe_container_instances_output_tests(_) ->
                 failures = []
             }}})
         ],
-    output_tests(?_f(erlcloud_ecs:describe_container_instances("f9cc75bb-0c94-46b9-bf6d-49d320bc1551", [{out, record}])), Tests).
+    output_tests(?_f(erlcloud_ecs:describe_container_instances(["f9cc75bb-0c94-46b9-bf6d-49d320bc1551"], [{out, record}])), Tests).
 
 %% DescribeServices test based on the API examples:
 %% http://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_DescribeServices.html
@@ -1613,10 +1615,26 @@ describe_tasks_input_tests(_) ->
     Tests = 
         [?_ecs_test(
             {"DescribeTasks example request",
-             ?_f(erlcloud_ecs:describe_tasks(["c09f0188-7f87-4b0f-bfc3-16296622b6fe"])), "
+             ?_f(erlcloud_ecs:describe_tasks(["c09f0188-7f87-4b0f-bfc3-16296622b6fe"], [{include, ["TAGS"]}])), "
 {
   \"tasks\": [
     \"c09f0188-7f87-4b0f-bfc3-16296622b6fe\"
+  ],
+  \"include\": [
+    \"TAGS\"
+  ]
+}
+"
+            }),
+         ?_ecs_test(
+            {"DescribeTasks binary input example request",
+             ?_f(erlcloud_ecs:describe_tasks([<<"c09f0188-7f87-4b0f-bfc3-16296622b6fe">>], [{include, [<<"TAGS">>]}])), "
+{
+  \"tasks\": [
+    \"c09f0188-7f87-4b0f-bfc3-16296622b6fe\"
+  ],
+  \"include\": [
+    \"TAGS\"
   ]
 }
 "
@@ -1680,14 +1698,54 @@ describe_tasks_output_tests(_) ->
   \"failures\": [],
   \"tasks\": [
     {
+      \"attachments\": [
+        {
+            \"id\": \"a1fda7d8-9592-4644-81ad-14578bc379ed\",
+            \"type\": \"ElasticNetworkInterface\",
+            \"status\": \"ATTACHED\",
+            \"details\": [
+                {
+                    \"name\": \"subnetId\",
+                    \"value\": \"subnet-0c28a8c6b37e69447\"
+                },
+                {
+                    \"name\": \"networkInterfaceId\",
+                    \"value\": \"eni-07f4ac7c00742fbfe\"
+                },
+                {
+                    \"name\": \"macAddress\",
+                    \"value\": \"0e:2b:61:08:f9:21\"
+                },
+                {
+                    \"name\": \"privateIPv4Address\",
+                    \"value\": \"10.0.0.92\"
+                }
+            ]
+        }
+      ],
+      \"availabilityZone\": \"us-east-1a\",
       \"clusterArn\": \"arn:aws:ecs:us-east-1:012345678910:cluster/default\",
+      \"connectivity\": \"CONNECTED\",
+      \"connectivityAt\": 1605621285.465,
       \"containerInstanceArn\": \"arn:aws:ecs:us-east-1:012345678910:container-instance/84818520-995f-4d94-9d70-7714bacc2953\",
       \"containers\": [
         {
           \"containerArn\": \"arn:aws:ecs:us-east-1:012345678910:container/76c980a8-2454-4a9c-acc4-9eb103117273\",
+          \"cpu\": \"256\",
+          \"exitCode\": 0,
+          \"healthStatus\": \"UNKNOWN\",
+          \"image\": \"nginx:latest\",
           \"lastStatus\": \"RUNNING\",
+          \"memoryReservation\": \"512\",
           \"name\": \"mysql\",
           \"networkBindings\": [],
+          \"networkInterfaces\": [
+            {
+                \"attachmentId\": \"a1fda7d8-9592-4644-81ad-14578bc379ed\",
+                \"privateIpv4Address\": \"10.0.0.92\"
+            }
+          ],
+          \"runtimeId\": \"19c89c93db7d248eb14044ba24925d9e50ef581e5030b23490e71d1beff3fc4e\",
           \"taskArn\": \"arn:aws:ecs:us-east-1:012345678910:task/c09f0188-7f87-4b0f-bfc3-16296622b6fe\"
         },
         {
@@ -1704,8 +1762,14 @@ describe_tasks_output_tests(_) ->
           \"taskArn\": \"arn:aws:ecs:us-east-1:012345678910:task/c09f0188-7f87-4b0f-bfc3-16296622b6fe\"
         }
       ],
+      \"cpu\": \"256\",
+      \"createdAt\": 1605621273.275,
       \"desiredStatus\": \"RUNNING\",
+      \"group\": \"service:kktest-fargate-service\",
+      \"healthStatus\": \"UNKNOWN\",
       \"lastStatus\": \"RUNNING\",
+      \"launchType\": \"FARGATE\",
+      \"memory\": \"512\",
       \"overrides\": {
         \"containerOverrides\": [
           {
@@ -1716,9 +1780,19 @@ describe_tasks_output_tests(_) ->
           }
         ]
       },
+      \"platformVersion\": \"1.3.0\",
+      \"pullStartedAt\": 1605621330.792,
+      \"pullStoppedAt\": 1605621335.792,
+      \"startedAt\": 1605621337.792,
       \"startedBy\": \"ecs-svc/9223370606521064774\",
+      \"stoppedAt\": 1606906997.776,
+      \"stoppedReason\": \"Task stopped by user\",
+      \"tags\": [
+        {\"key\": \"test-key\", \"value\": \"test-value\"}
+      ],
       \"taskArn\": \"arn:aws:ecs:us-east-1:012345678910:task/c09f0188-7f87-4b0f-bfc3-16296622b6fe\",
-      \"taskDefinitionArn\": \"arn:aws:ecs:us-east-1:012345678910:task-definition/hello_world:10\"
+      \"taskDefinitionArn\": \"arn:aws:ecs:us-east-1:012345678910:task-definition/hello_world:10\",
+      \"version\": 3
     }
   ]
 }
@@ -1727,14 +1801,42 @@ describe_tasks_output_tests(_) ->
                 failures = [],
                 tasks = [
                     #ecs_task{
+                        attachments = [
+                            #ecs_attachment{
+                                id = <<"a1fda7d8-9592-4644-81ad-14578bc379ed">>,
+                                type = <<"ElasticNetworkInterface">>,
+                                status = <<"ATTACHED">>,
+                                details = [
+                                    #ecs_attachment_detail{name = <<"subnetId">>, value = <<"subnet-0c28a8c6b37e69447">>},
+                                    #ecs_attachment_detail{name = <<"networkInterfaceId">>, value = <<"eni-07f4ac7c00742fbfe">>},
+                                    #ecs_attachment_detail{name = <<"macAddress">>, value = <<"0e:2b:61:08:f9:21">>},
+                                    #ecs_attachment_detail{name = <<"privateIPv4Address">>, value = <<"10.0.0.92">>}
+                                ]
+                            }
+                        ],
+                        availability_zone = <<"us-east-1a">>,
                         cluster_arn = <<"arn:aws:ecs:us-east-1:012345678910:cluster/default">>,
+                        connectivity = <<"CONNECTED">>,
+                        connectivity_at = 1605621285.465,
                         container_instance_arn = <<"arn:aws:ecs:us-east-1:012345678910:container-instance/84818520-995f-4d94-9d70-7714bacc2953">>,
                         containers = [
                             #ecs_container{
                                 container_arn = <<"arn:aws:ecs:us-east-1:012345678910:container/76c980a8-2454-4a9c-acc4-9eb103117273">>,
+                                cpu = <<"256">>,
+                                exit_code = 0,
+                                health_status = <<"UNKNOWN">>,
+                                image = <<"nginx:latest">>,
                                 last_status = <<"RUNNING">>,
+                                memory_reservation = <<"512">>,
                                 name = <<"mysql">>,
                                 network_bindings = [],
+                                network_interfaces = [
+                                    #ecs_network_interface{
+                                        attachment_id = <<"a1fda7d8-9592-4644-81ad-14578bc379ed">>,
+                                        private_ipv4_address = <<"10.0.0.92">>
+                                    }
+                                ],
+                                runtime_id = <<"19c89c93db7d248eb14044ba24925d9e50ef581e5030b23490e71d1beff3fc4e">>,
                                 task_arn = <<"arn:aws:ecs:us-east-1:012345678910:task/c09f0188-7f87-4b0f-bfc3-16296622b6fe">>
                             },
                             #ecs_container{
@@ -1751,8 +1853,14 @@ describe_tasks_output_tests(_) ->
                                 task_arn = <<"arn:aws:ecs:us-east-1:012345678910:task/c09f0188-7f87-4b0f-bfc3-16296622b6fe">>
                             }
                         ],
+                        cpu = <<"256">>,
+                        created_at = 1605621273.275,
+                        group = <<"service:kktest-fargate-service">>,
                         desired_status = <<"RUNNING">>,
                         last_status = <<"RUNNING">>,
+                        launch_type = <<"FARGATE">>,
+                        health_status = <<"UNKNOWN">>,
+                        memory = <<"512">>,
                         overrides = #ecs_task_override{
                             container_overrides = [
                                 #ecs_container_override{
@@ -1763,9 +1871,19 @@ describe_tasks_output_tests(_) ->
                                 }
                             ]
                         },
+                        platform_version = <<"1.3.0">>,
+                        pull_started_at = 1605621330.792,
+                        pull_stopped_at = 1605621335.792,
+                        started_at = 1605621337.792,
                         started_by = <<"ecs-svc/9223370606521064774">>,
+                        stopped_at = 1606906997.776,
+                        stopped_reason = <<"Task stopped by user">>,
+                        tags = [
+                            #ecs_tag{key = <<"test-key">>, value = <<"test-value">>}
+                        ],
                         task_arn = <<"arn:aws:ecs:us-east-1:012345678910:task/c09f0188-7f87-4b0f-bfc3-16296622b6fe">>,
-                        task_definition_arn = <<"arn:aws:ecs:us-east-1:012345678910:task-definition/hello_world:10">>
+                        task_definition_arn = <<"arn:aws:ecs:us-east-1:012345678910:task-definition/hello_world:10">>,
+                        version = 3
                     }
                 ]
             }}})
@@ -1894,6 +2012,64 @@ list_services_output_tests(_) ->
             }}})
         ],
     output_tests(?_f(erlcloud_ecs:list_services([{out, record}])), Tests).
+
+%% ListTagsForResource test based on the API examples:
+%% https://docs.aws.amazon.com/systems-manager/latest/APIReference/API_ListTagsForResource.html
+list_tags_for_resource_input_tests(_) ->
+    Tests = 
+        [?_ecs_test(
+            {"ListTagsForResource example request",
+             ?_f(erlcloud_ecs:list_tags_for_resource("testArn")), "
+{
+    \"resourceArn\": \"testArn\"
+}
+"
+            })
+        ],
+    Response = "
+{
+    \"tags\": [
+      {
+        \"key\": \"test-key1\",
+        \"value\": \"test-value1\"
+      },
+      {
+        \"key\": \"test-key2\",
+        \"value\": \"test-value2\"
+      }
+    ]
+}
+",
+    input_tests(Response, Tests).
+
+list_tags_for_resource_output_tests(_) ->
+    Tests =
+        [?_ecs_test(
+            {"ListTagsForResources example response", "
+{
+    \"tags\": [
+      {
+        \"key\": \"test-key1\",
+        \"value\": \"test-value1\"
+      },
+      {
+        \"key\": \"test-key2\",
+        \"value\": \"test-value2\"
+      }
+    ]
+}
+",
+            {ok, [#ecs_tag{
+                    key = <<"test-key1">>,
+                    value = <<"test-value1">>
+                  },
+                  #ecs_tag{
+                    key = <<"test-key2">>,
+                    value = <<"test-value2">>
+                  }
+             ]}})
+        ],
+    output_tests(?_f(erlcloud_ecs:list_tags_for_resource("testArn")), Tests).
 
 %% ListTaskDefinitionFamilies test based on the API examples:
 %% http://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_ListTaskDefinitionFamilies.html
@@ -2416,6 +2592,7 @@ run_task_output_tests(_) ->
       ],
       \"desiredStatus\": \"RUNNING\",
       \"lastStatus\": \"PENDING\",
+      \"launchType\": \"EC2\",
       \"overrides\": {
         \"containerOverrides\": [
           {
@@ -2454,6 +2631,7 @@ run_task_output_tests(_) ->
                         ],
                         desired_status = <<"RUNNING">>,
                         last_status = <<"PENDING">>,
+                        launch_type = <<"EC2">>,
                         overrides = #ecs_task_override{
                             container_overrides = [
                                 #ecs_container_override{
@@ -2556,6 +2734,7 @@ start_task_output_tests(_) ->
       ],
       \"desiredStatus\": \"RUNNING\",
       \"lastStatus\": \"PENDING\",
+      \"launchType\": \"FARGATE\",
       \"overrides\": {
         \"containerOverrides\": [
           {
@@ -2594,6 +2773,7 @@ start_task_output_tests(_) ->
                         ],
                         desired_status = <<"RUNNING">>,
                         last_status = <<"PENDING">>,
+                        launch_type = <<"FARGATE">>,
                         overrides = #ecs_task_override{
                             container_overrides = [
                                 #ecs_container_override{
@@ -3240,8 +3420,8 @@ sort_json(V) ->
 %% verifies that the parameters in the body match the expected parameters
 -spec validate_body(binary(), expected_body()) -> ok.
 validate_body(Body, Expected) ->
-    Want = sort_json(jsx:decode(list_to_binary(Expected))),
-    Actual = sort_json(jsx:decode(Body)),
+    Want = sort_json(jsx:decode(list_to_binary(Expected), [{return_maps, false}])),
+    Actual = sort_json(jsx:decode(Body, [{return_maps, false}])),
     case Want =:= Actual of
         true -> ok;
         false ->
@@ -3284,7 +3464,7 @@ input_tests(Response, Tests) ->
 %%%===================================================================
 
 %% returns the mock of the erlcloud_httpc function output tests expect to be called.
--spec output_expect(string()) -> fun().
+-spec output_expect(binary()) -> fun().
 output_expect(Response) ->
     fun(_Url, post, _Headers, _Body, _Timeout, _Config) ->
             {ok, {{200, "OK"}, [], Response}}
