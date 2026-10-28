@@ -3,7 +3,7 @@
 -include("erlcloud.hrl").
 -include("erlcloud_aws.hrl").
 
--export([get_instance_metadata/0, get_instance_metadata/1, get_instance_metadata/2,
+-export([get_instance_metadata/0, get_instance_metadata/1, get_instance_metadata/2, get_instance_metadata/3,
         get_instance_user_data/0, get_instance_user_data/1,
         get_instance_dynamic_data/0, get_instance_dynamic_data/1, get_instance_dynamic_data/2,
         get_imds_token/1,
